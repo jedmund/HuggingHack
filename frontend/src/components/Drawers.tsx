@@ -29,6 +29,8 @@ import {
   HardDrive,
   LoaderCircle,
   LockKeyhole,
+  Rocket,
+  Server,
   ShieldCheck,
   Trash2,
   X,
@@ -40,7 +42,14 @@ import {
   prepareModelCardMarkdown,
   resolveModelCardUrl,
 } from '../modelCard'
-import type { DownloadMode, HubFile, HubModelDetails, LocalModelDetails } from '../types'
+import type {
+  DownloadMode,
+  HubFile,
+  HubModelDetails,
+  LocalModelDetails,
+  RuntimeJob,
+  RuntimeTarget,
+} from '../types'
 import { formatBytes, formatNumber, relativeTime, taskLabel } from '../utils'
 
 interface ModelDrawerProps {
@@ -523,17 +532,35 @@ interface LocalDrawerProps {
   onClose: () => void
   onChanged: () => void
   onToast: (message: string, tone?: 'success' | 'error') => void
+  canManageRuntimes: boolean
 }
 
-export function LocalDrawer({ repoId, onClose, onChanged, onToast }: LocalDrawerProps) {
+const activeRuntimeStatuses = ['queued', 'preparing', 'transferring', 'loading']
+
+export function LocalDrawer({
+  repoId,
+  onClose,
+  onChanged,
+  onToast,
+  canManageRuntimes,
+}: LocalDrawerProps) {
   const [details, setDetails] = useState<LocalModelDetails | null>(null)
   const [error, setError] = useState('')
   const [changingCache, setChangingCache] = useState(false)
+  const [runtimeTargets, setRuntimeTargets] = useState<RuntimeTarget[]>([])
+  const [runtimeTargetId, setRuntimeTargetId] = useState('')
+  const [runtimeModelName, setRuntimeModelName] = useState('')
+  const [runtimeSourceFile, setRuntimeSourceFile] = useState('')
+  const [runtimeJob, setRuntimeJob] = useState<RuntimeJob | null>(null)
+  const [dispatching, setDispatching] = useState(false)
 
   useEffect(() => {
     let ignore = false
     setDetails(null)
     setError('')
+    setRuntimeJob(null)
+    setRuntimeModelName(repoId ? repoId.replace('/', '-').toLowerCase() : '')
+    setRuntimeSourceFile('')
     if (!repoId) return
     api
       .localModelDetails(repoId)
@@ -547,6 +574,43 @@ export function LocalDrawer({ repoId, onClose, onChanged, onToast }: LocalDrawer
       ignore = true
     }
   }, [repoId])
+
+  useEffect(() => {
+    if (!repoId || !canManageRuntimes) {
+      setRuntimeTargets([])
+      setRuntimeTargetId('')
+      return
+    }
+    api
+      .runtimeTargets()
+      .then((payload) => {
+        setRuntimeTargets(payload.items)
+        setRuntimeTargetId((current) =>
+          payload.items.some((target) => target.id === current)
+            ? current
+            : payload.items[0]?.id || '',
+        )
+      })
+      .catch(() => setRuntimeTargets([]))
+  }, [canManageRuntimes, repoId])
+
+  useEffect(() => {
+    if (!runtimeJob || !activeRuntimeStatuses.includes(runtimeJob.status)) return
+    const timer = window.setTimeout(() => {
+      api
+        .runtimeJob(runtimeJob.id)
+        .then((next) => {
+          setRuntimeJob(next)
+          if (next.status === 'ready') {
+            onToast(`${next.runtime_model_name} is ready on ${next.target_name}.`)
+          } else if (next.status === 'failed') {
+            onToast(next.error || 'Runtime load failed.', 'error')
+          }
+        })
+        .catch(() => undefined)
+    }, 1200)
+    return () => window.clearTimeout(timer)
+  }, [onToast, runtimeJob])
 
   async function changeCache() {
     if (!details || details.model.storage_backend !== 's3') return
@@ -576,6 +640,27 @@ export function LocalDrawer({ repoId, onClose, onChanged, onToast }: LocalDrawer
       onToast(message, 'error')
     } finally {
       setChangingCache(false)
+    }
+  }
+
+  async function dispatchRuntime() {
+    if (!details || !runtimeTargetId || !runtimeModelName.trim()) return
+    setDispatching(true)
+    setError('')
+    try {
+      const job = await api.loadRuntime(runtimeTargetId, {
+        repo_id: details.model.repo_id,
+        runtime_model_name: runtimeModelName.trim(),
+        ...(runtimeSourceFile ? { source_file: runtimeSourceFile } : {}),
+      })
+      setRuntimeJob(job)
+      onToast(`${details.model.repo_id} was queued for ${job.target_name}.`)
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : 'Could not send the model to the runtime.'
+      setError(message)
+      onToast(message, 'error')
+    } finally {
+      setDispatching(false)
     }
   }
 
@@ -646,6 +731,98 @@ export function LocalDrawer({ repoId, onClose, onChanged, onToast }: LocalDrawer
                     : 'Restore before loading this model in vLLM, llama.cpp, or another local runtime.'}
                 </p>
               </div>
+            )}
+            {canManageRuntimes && runtimeTargets.length > 0 && (
+              <section className="runtime-dispatch">
+                <div className="runtime-dispatch-title">
+                  <Server size={17} />
+                  <div>
+                    <strong>Send to runtime</strong>
+                    <p>Transfer to Ollama or start this shared path through a vLLM agent.</p>
+                  </div>
+                </div>
+                <div className="runtime-dispatch-form">
+                  <label>
+                    Destination
+                    <select
+                      value={runtimeTargetId}
+                      onChange={(event) => {
+                        setRuntimeTargetId(event.target.value)
+                        setRuntimeSourceFile('')
+                      }}
+                    >
+                      {runtimeTargets.map((target) => (
+                        <option key={target.id} value={target.id}>
+                          {target.name} · {target.kind}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Served model name
+                    <input
+                      value={runtimeModelName}
+                      onChange={(event) => setRuntimeModelName(event.target.value)}
+                      maxLength={128}
+                    />
+                  </label>
+                  {runtimeTargets.find((target) => target.id === runtimeTargetId)?.kind === 'ollama'
+                    && details.files.filter((file) => file.path.toLowerCase().endsWith('.gguf')).length > 1 && (
+                      <label className="runtime-source-field">
+                        GGUF quantization
+                        <select
+                          value={runtimeSourceFile}
+                          onChange={(event) => setRuntimeSourceFile(event.target.value)}
+                        >
+                          <option value="">Choose a GGUF file</option>
+                          {details.files
+                            .filter((file) => file.path.toLowerCase().endsWith('.gguf'))
+                            .map((file) => (
+                              <option key={file.path} value={file.path}>
+                                {file.path} · {formatBytes(file.size)}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+                    )}
+                  <button
+                    type="button"
+                    className="download-button"
+                    onClick={dispatchRuntime}
+                    disabled={
+                      dispatching
+                      || !details.model.cached
+                      || !runtimeTargetId
+                      || !runtimeModelName.trim()
+                      || (
+                        runtimeTargets.find((target) => target.id === runtimeTargetId)?.kind === 'ollama'
+                        && details.files.filter((file) => file.path.toLowerCase().endsWith('.gguf')).length > 1
+                        && !runtimeSourceFile
+                      )
+                      || Boolean(runtimeJob && activeRuntimeStatuses.includes(runtimeJob.status))
+                    }
+                  >
+                    {dispatching || (runtimeJob && activeRuntimeStatuses.includes(runtimeJob.status))
+                      ? <LoaderCircle size={16} className="spin" />
+                      : <Rocket size={16} />}
+                    {runtimeJob && activeRuntimeStatuses.includes(runtimeJob.status)
+                      ? runtimeJob.message
+                      : dispatching ? 'Queuing…' : 'Load model'}
+                  </button>
+                </div>
+                {runtimeJob && (
+                  <div className={`runtime-job-inline ${runtimeJob.status}`}>
+                    <div>
+                      <span>{runtimeJob.message}</span>
+                      <strong>{runtimeJob.progress.toFixed(0)}%</strong>
+                    </div>
+                    <div className="job-progress">
+                      <span style={{ width: `${runtimeJob.progress}%` }} />
+                    </div>
+                    {runtimeJob.error && <p>{runtimeJob.error}</p>}
+                  </div>
+                )}
+              </section>
             )}
             {details.unsafe_file_count > 0 ? (
               <div className="security-note warning">

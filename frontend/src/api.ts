@@ -9,6 +9,8 @@ import type {
   LocalModel,
   LocalModelDetails,
   OwnedRepository,
+  RuntimeJob,
+  RuntimeTarget,
   SavedModel,
   User,
 } from './types'
@@ -112,6 +114,25 @@ export const api = {
       `/api/local-models/${repoPath(repoId)}/cache`,
       { method: 'DELETE' },
     ),
+  runtimeTargets: () => request<{ items: RuntimeTarget[] }>('/api/runtimes'),
+  runtimeJobs: (limit = 100) =>
+    request<{ items: RuntimeJob[]; active: number }>(
+      `/api/runtime-jobs?limit=${encodeURIComponent(limit)}`,
+    ),
+  runtimeJob: (jobId: string) =>
+    request<RuntimeJob>(`/api/runtime-jobs/${encodeURIComponent(jobId)}`),
+  loadRuntime: (
+    targetId: string,
+    payload: {
+      repo_id: string
+      runtime_model_name?: string
+      source_file?: string
+    },
+  ) =>
+    request<RuntimeJob>(`/api/runtimes/${encodeURIComponent(targetId)}/load`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
   collections: () => request<{ items: Collection[] }>('/api/collections'),
   createCollection: (payload: { name: string; description?: string }) =>
     request<Collection>('/api/collections', {

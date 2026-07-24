@@ -1,8 +1,10 @@
 import json
 import sqlite3
+import time
 from io import BytesIO
 from pathlib import Path
 
+import httpx
 import pytest
 
 from app.auth import AuthService, verify_password
@@ -10,8 +12,15 @@ from app.config import Settings, repository_path, validate_repo_id
 from app.database import Database
 from app.downloads import DownloadManager
 from app.indexer import LocalModelIndexer
+from app.runtimes import (
+    RuntimeManager,
+    ollama_files,
+    parse_runtime_targets,
+    remote_model_path,
+)
 from app.storage import FilesystemModelStorage, S3ModelStorage
 from app.uploads import UploadManager, validate_upload_path
+from app.vllm_agent import AgentSettings, VllmProcessManager
 
 
 class FakeS3Client:
@@ -594,3 +603,221 @@ def test_s3_restore_rejects_traversal_keys(tmp_path: Path):
         model_storage.restore_repository("acme/tiny")
 
     assert not (tmp_path / "models" / "acme" / "escape.bin").exists()
+
+
+def test_runtime_target_configuration_and_remote_path_mapping():
+    targets = parse_runtime_targets(
+        json.dumps(
+            [
+                {
+                    "id": "ollama-rig",
+                    "name": "Ollama rig",
+                    "kind": "ollama",
+                    "base_url": "http://192.168.0.36:11434",
+                    "keep_alive": "20m",
+                },
+                {
+                    "id": "vllm-rig",
+                    "name": "vLLM rig",
+                    "kind": "vllm",
+                    "base_url": "http://192.168.0.35:8090",
+                    "remote_model_root": "/mnt/nas/models",
+                    "token_env": "VLLM_AGENT_TOKEN",
+                },
+            ]
+        )
+    )
+
+    assert [target.kind for target in targets] == ["ollama", "vllm"]
+    assert targets[0].public()["transfer_mode"] == "blob-upload"
+    assert (
+        remote_model_path("/mnt/nas/models", "acme/tiny")
+        == "/mnt/nas/models/acme/tiny"
+    )
+    assert (
+        remote_model_path(r"Z:\models", "acme/tiny")
+        == r"Z:\models\acme\tiny"
+    )
+
+    with pytest.raises(ValueError, match="requires remote_model_root"):
+        parse_runtime_targets(
+            '[{"id":"bad","kind":"vllm","base_url":"http://rig:8090"}]'
+        )
+    with pytest.raises(ValueError, match="without credentials"):
+        parse_runtime_targets(
+            '[{"id":"bad","kind":"ollama","base_url":"http://user:pass@rig:11434"}]'
+        )
+
+
+def test_ollama_import_requires_explicit_choice_for_multiple_ggufs(tmp_path: Path):
+    root = tmp_path / "models" / "acme" / "quantized"
+    root.mkdir(parents=True)
+    (root / "model-q4.gguf").write_bytes(b"q4")
+    (root / "model-q8.gguf").write_bytes(b"q8")
+
+    with pytest.raises(ValueError, match="multiple GGUF"):
+        ollama_files(root)
+    assert ollama_files(root, "model-q4.gguf") == [
+        (root / "model-q4.gguf").resolve()
+    ]
+    with pytest.raises(ValueError, match="invalid"):
+        ollama_files(root, "../secret.bin")
+
+
+def _wait_for_runtime_job(
+    database: Database, job_id: str, timeout: float = 3
+) -> dict:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        job = database.get_runtime_job(job_id)
+        if job and job["status"] in {"ready", "failed"}:
+            return job
+        time.sleep(0.01)
+    raise AssertionError("Runtime job did not finish in time")
+
+
+def test_runtime_manager_transfers_and_preloads_ollama_model(tmp_path: Path):
+    storage = (tmp_path / "models").resolve()
+    root = storage / "acme" / "tiny-gguf"
+    root.mkdir(parents=True)
+    (root / "tiny.gguf").write_bytes(b"tiny-gguf-weights")
+    settings = Settings(
+        model_storage=storage,
+        data_dir=(tmp_path / "data").resolve(),
+        runtime_targets_json=json.dumps(
+            [
+                {
+                    "id": "ollama-rig",
+                    "name": "Ollama rig",
+                    "kind": "ollama",
+                    "base_url": "http://ollama.test:11434",
+                    "keep_alive": "15m",
+                }
+            ]
+        ),
+    )
+    database = Database(settings.database_path)
+    database.initialize()
+    user = AuthService(settings, database).create_user(
+        "owner", "Owner", "correct horse battery", "admin"
+    )
+    indexer = LocalModelIndexer(settings, database)
+    indexer.scan()
+    requests: list[tuple[str, str, bytes]] = []
+
+    def handler(request: httpx.Request):
+        content = request.read()
+        requests.append((request.method, request.url.path, content))
+        if request.method == "HEAD":
+            return httpx.Response(404)
+        if request.url.path.startswith("/api/blobs/"):
+            return httpx.Response(201)
+        if request.url.path == "/api/create":
+            return httpx.Response(200, json={"status": "success"})
+        if request.url.path == "/api/generate":
+            return httpx.Response(200, json={"done": True})
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    manager = RuntimeManager(
+        settings,
+        database,
+        client_factory=lambda _: httpx.Client(transport=transport),
+    )
+    model = database.get_local_model("acme/tiny-gguf")
+    assert model is not None
+    job = manager.queue(
+        "ollama-rig", model, "acme-tiny", None, user_id=user["id"]
+    )
+    finished = _wait_for_runtime_job(database, job["id"])
+    manager.shutdown()
+
+    assert finished["status"] == "ready"
+    assert finished["progress"] == 100
+    assert any(method == "POST" and path.startswith("/api/blobs/") for method, path, _ in requests)
+    create_payload = json.loads(
+        next(content for method, path, content in requests if path == "/api/create")
+    )
+    assert create_payload["model"] == "acme-tiny"
+    assert set(create_payload["files"]) == {"tiny.gguf"}
+    preload_payload = json.loads(
+        next(content for method, path, content in requests if path == "/api/generate")
+    )
+    assert preload_payload["keep_alive"] == "15m"
+
+
+def test_runtime_manager_maps_shared_model_path_for_vllm_agent(tmp_path: Path):
+    storage = (tmp_path / "models").resolve()
+    root = storage / "acme" / "tiny"
+    root.mkdir(parents=True)
+    (root / "config.json").write_text("{}", encoding="utf-8")
+    (root / "model.safetensors").write_bytes(b"weights")
+    settings = Settings(
+        model_storage=storage,
+        data_dir=(tmp_path / "data").resolve(),
+        runtime_targets_json=json.dumps(
+            [
+                {
+                    "id": "vllm-rig",
+                    "name": "vLLM rig",
+                    "kind": "vllm",
+                    "base_url": "http://vllm-agent.test:8090",
+                    "remote_model_root": "/srv/nas/models",
+                }
+            ]
+        ),
+    )
+    database = Database(settings.database_path)
+    database.initialize()
+    user = AuthService(settings, database).create_user(
+        "owner", "Owner", "correct horse battery", "admin"
+    )
+    LocalModelIndexer(settings, database).scan()
+    payloads: list[dict] = []
+
+    def handler(request: httpx.Request):
+        payloads.append(json.loads(request.read()))
+        return httpx.Response(200, json={"status": "ready"})
+
+    manager = RuntimeManager(
+        settings,
+        database,
+        client_factory=lambda _: httpx.Client(
+            transport=httpx.MockTransport(handler)
+        ),
+    )
+    model = database.get_local_model("acme/tiny")
+    assert model is not None
+    job = manager.queue(
+        "vllm-rig", model, "tiny-chat", None, user_id=user["id"]
+    )
+    finished = _wait_for_runtime_job(database, job["id"])
+    manager.shutdown()
+
+    assert finished["status"] == "ready"
+    assert payloads == [
+        {
+            "repo_id": "acme/tiny",
+            "model_path": "/srv/nas/models/acme/tiny",
+            "served_model_name": "tiny-chat",
+        }
+    ]
+
+
+def test_vllm_agent_confines_requested_models_to_shared_root(tmp_path: Path):
+    root = (tmp_path / "models").resolve()
+    allowed = root / "acme" / "tiny"
+    allowed.mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    manager = VllmProcessManager(
+        AgentSettings(
+            token="test-token",
+            model_root=root,
+            log_path=(tmp_path / "agent.log").resolve(),
+        )
+    )
+
+    assert manager._validated_model_path(str(allowed)) == allowed
+    with pytest.raises(ValueError, match="must stay inside"):
+        manager._validated_model_path(str(outside))

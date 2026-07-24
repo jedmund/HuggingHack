@@ -27,6 +27,8 @@ export interface Health {
   accounts_enabled: boolean
   upload_chunk_bytes: number
   max_upload_size_bytes: number
+  runtime_target_count: number
+  runtime_api_token_configured: boolean
 }
 
 export interface User {
@@ -137,6 +139,36 @@ export interface LocalModelDetails {
   files: LocalFile[]
   unsafe_file_count: number
   truncated: boolean
+}
+
+export interface RuntimeTarget {
+  id: string
+  name: string
+  kind: 'ollama' | 'vllm'
+  base_url: string
+  remote_model_root?: string | null
+  authenticated: boolean
+  transfer_mode: 'blob-upload' | 'shared-path'
+  keep_alive?: string | number | null
+}
+
+export interface RuntimeJob {
+  id: string
+  target_id: string
+  target_name: string
+  target_kind: 'ollama' | 'vllm'
+  repo_id: string
+  runtime_model_name: string
+  source_file?: string | null
+  status: 'queued' | 'preparing' | 'transferring' | 'loading' | 'ready' | 'failed'
+  total_bytes: number
+  processed_bytes: number
+  progress: number
+  message: string
+  error?: string | null
+  created_at: string
+  updated_at: string
+  completed_at?: string | null
 }
 
 export interface Collection {

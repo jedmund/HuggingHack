@@ -53,6 +53,7 @@
 - Per-account saved models, private notes, and project or rig collections
 - Private or locally shared user repositories with resumable, chunked model-folder uploads
 - Optional S3-compatible durable storage with a local working cache, remote browsing, restore, and cache eviction
+- Network runtime jobs: transfer models to Ollama or switch a remote vLLM rig through an authenticated manager
 - Ownership-verified repository deletion with exact-name confirmation
 - Optional read-only `HF_TOKEN` support for private and gated models
 - Light/dark themes and responsive desktop/mobile layouts
@@ -213,6 +214,81 @@ The bucket identity needs `s3:ListBucket` on the bucket and `s3:GetObject`,
 Keep the `data` directory backed up too: private upload manifests fail closed unless their
 matching ownership metadata is present in SQLite.
 
+## Send models to Ollama or vLLM
+
+HuggingHack can dispatch a cached model to another inference device on the same network.
+Destinations are configured server-side so endpoints and credentials never have to be entered
+in the browser. The owner can then choose **Local library → model → Send to runtime**, while
+automation can use the same API.
+
+Add one or both target types to `.env` on a single line:
+
+```dotenv
+RUNTIME_TARGETS_JSON=[{"id":"ollama-rig","name":"Ollama GPU","kind":"ollama","base_url":"http://192.168.0.36:11434","keep_alive":"15m"},{"id":"vllm-rig","name":"vLLM GPU","kind":"vllm","base_url":"http://192.168.0.35:8090","remote_model_root":"/mnt/nas/models","token_env":"VLLM_AGENT_TOKEN"}]
+RUNTIME_WORKERS=2
+VLLM_AGENT_TOKEN=replace-with-the-same-long-random-secret-used-on-the-agent
+```
+
+The two adapters deliberately handle storage differently:
+
+- **Ollama** uses its native blob and create APIs. HuggingHack hashes each required file, skips
+  blobs the remote server already has, transfers missing data over HTTP, creates the Ollama
+  model, and preloads it for the configured `keep_alive`. A repository needs one selected GGUF
+  or a root-level SafeTensors model supported by Ollama.
+- **vLLM** reads the existing NAS files instead of copying them. Mount the HuggingHack model
+  folder on the vLLM device, then set `remote_model_root` to that device's mount path. vLLM
+  fixes its base model at process startup, so the authenticated agent stops the process it
+  manages and starts `vllm serve` with the selected model. Active inference requests will be
+  interrupted during a switch.
+
+S3-only models must be restored to the local cache before either adapter can use them.
+
+### Run the vLLM agent
+
+On the vLLM device, mount the same model share and run the small manager included in this
+repository. The token is mandatory and must match the environment variable forwarded to the
+HuggingHack container:
+
+```bash
+export VLLM_AGENT_TOKEN='replace-with-a-long-random-secret'
+export VLLM_AGENT_MODEL_ROOT=/mnt/nas/models
+export VLLM_AGENT_VLLM_PORT=8000
+export VLLM_AGENT_EXTRA_ARGS_JSON='["--gpu-memory-utilization","0.9"]'
+python -m uvicorn app.vllm_agent:app \
+  --app-dir backend \
+  --host 0.0.0.0 \
+  --port 8090
+```
+
+The agent never accepts a shell command or arbitrary model path. It only starts `vllm serve`
+for a directory inside `VLLM_AGENT_MODEL_ROOT`, with additional vLLM arguments fixed by the
+agent administrator through `VLLM_AGENT_EXTRA_ARGS_JSON`. Do not run a separate vLLM server on
+the configured vLLM port; the agent owns that process.
+
+### Runtime API
+
+Set `RUNTIME_API_TOKEN` to enable bearer-token automation scoped to runtime targets, loads, and
+job history:
+
+```dotenv
+RUNTIME_API_TOKEN=replace-with-another-long-random-secret
+```
+
+Queue a load:
+
+```bash
+curl -X POST http://NAS-IP:7860/api/runtimes/ollama-rig/load \
+  -H "Authorization: Bearer $RUNTIME_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"repo_id":"bartowski/Qwen2.5-7B-Instruct-GGUF","runtime_model_name":"qwen-local","source_file":"Qwen2.5-7B-Instruct-Q4_K_M.gguf"}'
+```
+
+The response is a persistent asynchronous job. Read it at
+`GET /api/runtime-jobs/{job_id}`, list history at `GET /api/runtime-jobs`, and discover
+configured destinations at `GET /api/runtimes`. The same endpoints also accept the owner's
+normal browser session and CSRF token. Interactive API documentation is available at
+`http://NAS-IP:7860/api/docs`.
+
 ## Move it to the NAS
 
 Copy the entire `HuggingHack` directory to your NAS, then change only `MODEL_STORAGE_PATH` in `.env`.
@@ -311,6 +387,8 @@ Manually copied models are indexed but never modified.
 - Passwords are salted and hashed with `scrypt`; sessions use hashed random tokens in HTTP-only, SameSite cookies and state-changing requests require a per-session CSRF token.
 - Built-in accounts protect application data, but public exposure still requires HTTPS. Put HuggingHack behind a TLS reverse proxy such as Caddy, Traefik, or Nginx Proxy Manager and set `SECURE_COOKIES=true`.
 - Upload paths are confined to repositories owned by the signed-in account. Repository deletion verifies ownership and requires the exact repository name.
+- Runtime dispatch is administrator-only in the UI. Optional bearer access is limited to runtime endpoints; use long random tokens and firewall Ollama and the vLLM agent to trusted LAN clients.
+- The vLLM agent rejects paths outside its configured model root and launches a fixed argument vector without a shell.
 - Use a read-only Hugging Face token.
 
 ## Development

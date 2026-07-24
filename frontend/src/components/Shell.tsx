@@ -8,6 +8,7 @@ import {
   Menu,
   Moon,
   Search,
+  Server,
   Settings,
   Sun,
   UploadCloud,
@@ -30,6 +31,7 @@ const links = [
   { to: '/saved', label: 'Saved', icon: Bookmark },
   { to: '/uploads', label: 'Uploads', icon: UploadCloud },
   { to: '/downloads', label: 'Downloads', icon: Download },
+  { to: '/runtimes', label: 'Runtimes', icon: Server, adminOnly: true },
 ]
 
 export default function Shell({ children, activeDownloads, user, onLogout }: ShellProps) {
@@ -88,7 +90,7 @@ export default function Shell({ children, activeDownloads, user, onLogout }: She
           </form>
 
           <nav className="primary-nav" aria-label="Primary navigation">
-            {links.map(({ to, label, icon: Icon }) => (
+            {links.filter((link) => !link.adminOnly || user.role === 'admin').map(({ to, label, icon: Icon }) => (
               <NavLink key={to} to={to} className={({ isActive }) => (isActive ? 'active' : '')}>
                 <Icon size={16} aria-hidden="true" />
                 <span>{label}</span>
@@ -138,7 +140,7 @@ export default function Shell({ children, activeDownloads, user, onLogout }: She
                 placeholder="Search the Hub"
               />
             </form>
-            {links.map(({ to, label, icon: Icon }) => (
+            {links.filter((link) => !link.adminOnly || user.role === 'admin').map(({ to, label, icon: Icon }) => (
               <NavLink key={to} to={to} onClick={() => setMobileOpen(false)}>
                 <Icon size={18} />
                 {label}

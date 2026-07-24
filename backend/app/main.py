@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import json
 import shutil
 import sqlite3
@@ -20,6 +21,7 @@ from .database import Database
 from .downloads import DownloadManager
 from .hub_service import HubService
 from .indexer import LocalModelIndexer
+from .runtimes import RuntimeManager
 from .storage import create_model_storage
 from .uploads import UploadManager
 
@@ -31,6 +33,7 @@ model_storage = create_model_storage(settings)
 downloads = DownloadManager(settings, database, hub, indexer, model_storage)
 auth = AuthService(settings, database)
 uploads = UploadManager(settings, database, indexer, model_storage)
+runtimes = RuntimeManager(settings, database)
 
 
 def refresh_model_index() -> dict[str, Any]:
@@ -66,11 +69,13 @@ def refresh_model_index() -> dict[str, Any]:
 async def lifespan(_: FastAPI):
     settings.ensure_directories()
     database.initialize()
+    database.fail_unfinished_runtime_jobs(utc_iso())
     auth.ensure_local_user()
     await run_in_threadpool(refresh_model_index)
     downloads.resume_unfinished()
     yield
     downloads.shutdown()
+    runtimes.shutdown()
 
 
 app = FastAPI(
@@ -87,6 +92,7 @@ app.add_middleware(
     allow_methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=[
         "Content-Type",
+        "Authorization",
         "X-CSRF-Token",
         "Upload-Offset",
         "Upload-Length",
@@ -179,6 +185,17 @@ class DeleteRepositoryRequest(BaseModel):
     confirmation: str = Field(min_length=1, max_length=200)
 
 
+class RuntimeLoadRequest(BaseModel):
+    repo_id: str
+    runtime_model_name: str | None = Field(default=None, max_length=128)
+    source_file: str | None = Field(default=None, max_length=500)
+
+    @field_validator("repo_id")
+    @classmethod
+    def runtime_repo_is_valid(cls, value: str) -> str:
+        return validate_repo_id(value)
+
+
 def session_for_request(request: Request) -> dict[str, Any] | None:
     return auth.session(request.cookies.get(auth.cookie_name))
 
@@ -258,6 +275,8 @@ def health() -> dict:
         "accounts_enabled": settings.accounts_enabled,
         "upload_chunk_bytes": settings.upload_chunk_mb * 1024**2,
         "max_upload_size_bytes": settings.max_upload_size_gb * 1024**3,
+        "runtime_target_count": len(runtimes.targets),
+        "runtime_api_token_configured": bool(settings.runtime_api_token),
     }
 
 
@@ -553,6 +572,99 @@ def local_model(repo_id: str, user: CurrentUser) -> dict:
     if not result:
         raise HTTPException(status_code=404, detail="Local model not found")
     return result
+
+
+def require_runtime_admin(user: dict[str, Any]) -> None:
+    if user["role"] != "admin":
+        raise HTTPException(
+            status_code=403, detail="Administrator access is required."
+        )
+
+
+def runtime_api_principal(request: Request) -> dict[str, Any] | None:
+    expected = settings.runtime_api_token
+    authorization = request.headers.get("Authorization") or ""
+    if not expected or not authorization.startswith("Bearer "):
+        return None
+    supplied = authorization.removeprefix("Bearer ")
+    if not supplied or not hmac.compare_digest(supplied, expected):
+        raise HTTPException(status_code=401, detail="Invalid runtime API token.")
+    return {"id": None, "role": "admin", "runtime_api": True}
+
+
+def require_runtime_reader(request: Request) -> dict[str, Any]:
+    principal = runtime_api_principal(request)
+    if principal:
+        return principal
+    user = require_user(request)
+    require_runtime_admin(user)
+    return user
+
+
+def require_runtime_writer(request: Request) -> dict[str, Any]:
+    principal = runtime_api_principal(request)
+    if principal:
+        return principal
+    user = require_user(request)
+    session = request.state.auth_session
+    if not auth.verify_csrf(session, request.headers.get("X-CSRF-Token")):
+        raise HTTPException(status_code=403, detail="Security token is missing or expired.")
+    require_runtime_admin(user)
+    return user
+
+
+RuntimeReader = Annotated[dict[str, Any], Depends(require_runtime_reader)]
+RuntimeWriter = Annotated[dict[str, Any], Depends(require_runtime_writer)]
+
+
+@app.get("/api/runtimes")
+def list_runtimes(_: RuntimeReader) -> dict:
+    return {"items": runtimes.public_targets()}
+
+
+@app.get("/api/runtime-jobs")
+def list_runtime_jobs(
+    _: RuntimeReader, limit: Annotated[int, Query(ge=1, le=200)] = 100
+) -> dict:
+    items = database.list_runtime_jobs(limit)
+    return {
+        "items": items,
+        "active": sum(
+            item["status"] in {"queued", "preparing", "transferring", "loading"}
+            for item in items
+        ),
+    }
+
+
+@app.get("/api/runtime-jobs/{job_id}")
+def get_runtime_job(job_id: str, _: RuntimeReader) -> dict:
+    job = database.get_runtime_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Runtime job not found.")
+    return job
+
+
+@app.post("/api/runtimes/{target_id}/load", status_code=202)
+def load_runtime_model(
+    target_id: str, payload: RuntimeLoadRequest, principal: RuntimeWriter
+) -> dict:
+    model = (
+        database.get_local_model(payload.repo_id)
+        if principal.get("runtime_api")
+        else visible_model(payload.repo_id, principal["id"])
+    )
+    if not model:
+        raise HTTPException(status_code=404, detail="Local model not found")
+    try:
+        return runtimes.queue(
+            target_id,
+            model,
+            payload.runtime_model_name,
+            payload.source_file,
+            principal["id"],
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
 
 
 @app.get("/api/collections")

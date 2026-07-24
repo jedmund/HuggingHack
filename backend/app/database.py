@@ -20,6 +20,17 @@ DOWNLOAD_FIELDS = {
     "completed_at",
 }
 
+RUNTIME_JOB_FIELDS = {
+    "status",
+    "total_bytes",
+    "processed_bytes",
+    "progress",
+    "message",
+    "error",
+    "updated_at",
+    "completed_at",
+}
+
 
 class Database:
     def __init__(self, path: Path):
@@ -103,6 +114,38 @@ class Database:
 
                 CREATE INDEX IF NOT EXISTS idx_local_models_modified
                     ON local_models(modified_at DESC);
+
+                CREATE TABLE IF NOT EXISTS runtime_jobs (
+                    id TEXT PRIMARY KEY,
+                    target_id TEXT NOT NULL,
+                    target_name TEXT NOT NULL,
+                    target_kind TEXT NOT NULL CHECK (target_kind IN ('ollama', 'vllm')),
+                    repo_id TEXT NOT NULL,
+                    runtime_model_name TEXT NOT NULL,
+                    source_file TEXT,
+                    status TEXT NOT NULL,
+                    total_bytes INTEGER NOT NULL DEFAULT 0,
+                    processed_bytes INTEGER NOT NULL DEFAULT 0,
+                    progress REAL NOT NULL DEFAULT 0,
+                    message TEXT NOT NULL DEFAULT '',
+                    error TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    completed_at TEXT,
+                    user_id TEXT REFERENCES users(id) ON DELETE SET NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_runtime_jobs_created
+                    ON runtime_jobs(created_at DESC);
+
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_runtime_jobs_active_model
+                    ON runtime_jobs(target_id, repo_id)
+                    WHERE status IN ('queued', 'preparing', 'transferring', 'loading');
+
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_runtime_jobs_active_vllm
+                    ON runtime_jobs(target_id)
+                    WHERE target_kind = 'vllm'
+                      AND status IN ('queued', 'preparing', 'transferring', 'loading');
 
                 CREATE TABLE IF NOT EXISTS collections (
                     id TEXT PRIMARY KEY,
@@ -383,6 +426,103 @@ class Database:
                 "SELECT * FROM downloads WHERE status IN ('queued', 'preparing', 'downloading')"
             ).fetchall()
         return [self._decode_row(row) for row in rows]
+
+    def create_runtime_job(self, record: dict[str, Any]) -> dict[str, Any]:
+        with self._write_lock, self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO runtime_jobs (
+                    id, target_id, target_name, target_kind, repo_id,
+                    runtime_model_name, source_file, status, total_bytes,
+                    processed_bytes, progress, message, error, created_at,
+                    updated_at, completed_at, user_id
+                ) VALUES (
+                    :id, :target_id, :target_name, :target_kind, :repo_id,
+                    :runtime_model_name, :source_file, :status, :total_bytes,
+                    :processed_bytes, :progress, :message, :error, :created_at,
+                    :updated_at, :completed_at, :user_id
+                )
+                """,
+                record,
+            )
+        return self.get_runtime_job(record["id"])
+
+    def update_runtime_job(
+        self, job_id: str, **changes: Any
+    ) -> dict[str, Any] | None:
+        safe_changes = {
+            key: value for key, value in changes.items() if key in RUNTIME_JOB_FIELDS
+        }
+        if not safe_changes:
+            return self.get_runtime_job(job_id)
+        assignments = ", ".join(f"{key} = :{key}" for key in safe_changes)
+        safe_changes["id"] = job_id
+        with self._write_lock, self.connect() as connection:
+            connection.execute(
+                f"UPDATE runtime_jobs SET {assignments} WHERE id = :id",
+                safe_changes,
+            )
+        return self.get_runtime_job(job_id)
+
+    def get_runtime_job(self, job_id: str) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM runtime_jobs WHERE id = ?", (job_id,)
+            ).fetchone()
+        return self._decode_row(row)
+
+    def list_runtime_jobs(self, limit: int = 100) -> list[dict[str, Any]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM runtime_jobs ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [self._decode_row(row) for row in rows]
+
+    def find_active_runtime_job(
+        self, target_id: str, repo_id: str
+    ) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM runtime_jobs
+                WHERE target_id = ? AND repo_id = ?
+                  AND status IN ('queued', 'preparing', 'transferring', 'loading')
+                ORDER BY created_at DESC LIMIT 1
+                """,
+                (target_id, repo_id),
+            ).fetchone()
+        return self._decode_row(row)
+
+    def find_active_runtime_target(
+        self, target_id: str
+    ) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM runtime_jobs
+                WHERE target_id = ?
+                  AND status IN ('queued', 'preparing', 'transferring', 'loading')
+                ORDER BY created_at DESC LIMIT 1
+                """,
+                (target_id,),
+            ).fetchone()
+        return self._decode_row(row)
+
+    def fail_unfinished_runtime_jobs(self, updated_at: str) -> None:
+        with self._write_lock, self.connect() as connection:
+            connection.execute(
+                """
+                UPDATE runtime_jobs
+                SET status = 'failed',
+                    error = 'HuggingHack restarted before this runtime job completed.',
+                    message = 'Interrupted',
+                    updated_at = ?,
+                    completed_at = ?
+                WHERE status IN ('queued', 'preparing', 'transferring', 'loading')
+                """,
+                (updated_at, updated_at),
+            )
 
     def upsert_local_model(self, record: dict[str, Any]) -> None:
         with self._write_lock, self.connect() as connection:

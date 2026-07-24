@@ -40,6 +40,9 @@ class Settings:
     session_ttl_hours: int = _positive_int("SESSION_TTL_HOURS", 720, 8760)
     upload_chunk_mb: int = _positive_int("UPLOAD_CHUNK_MB", 8, 64)
     max_upload_size_gb: int = _positive_int("MAX_UPLOAD_SIZE_GB", 1024, 16384)
+    runtime_targets_json: str = os.getenv("RUNTIME_TARGETS_JSON", "[]")
+    runtime_workers: int = _positive_int("RUNTIME_WORKERS", 2, 8)
+    runtime_api_token: str | None = os.getenv("RUNTIME_API_TOKEN") or None
     s3_bucket: str | None = os.getenv("S3_BUCKET") or None
     s3_prefix: str = os.getenv("S3_PREFIX", "models").strip().strip("/")
     s3_endpoint_url: str | None = os.getenv("S3_ENDPOINT_URL") or None
