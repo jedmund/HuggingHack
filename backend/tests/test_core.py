@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from io import BytesIO
 from pathlib import Path
 
 import pytest
@@ -9,7 +10,58 @@ from app.config import Settings, repository_path, validate_repo_id
 from app.database import Database
 from app.downloads import DownloadManager
 from app.indexer import LocalModelIndexer
+from app.storage import FilesystemModelStorage, S3ModelStorage
 from app.uploads import UploadManager, validate_upload_path
+
+
+class FakeS3Client:
+    def __init__(self):
+        self.objects: dict[str, bytes] = {}
+        self.uploads: list[str] = []
+
+    def get_paginator(self, operation: str):
+        assert operation == "list_objects_v2"
+        return self
+
+    def paginate(self, *, Bucket: str, Prefix: str):
+        return [
+            {
+                "Contents": [
+                    {
+                        "Key": key,
+                        "Size": len(value),
+                        "LastModified": "2026-07-24T12:00:00+00:00",
+                    }
+                    for key, value in sorted(self.objects.items())
+                    if key.startswith(Prefix)
+                ]
+            }
+        ]
+
+    def list_objects_v2(self, *, Bucket: str, Prefix: str, MaxKeys: int):
+        contents = [
+            {"Key": key}
+            for key in sorted(self.objects)
+            if key.startswith(Prefix)
+        ][:MaxKeys]
+        return {"Contents": contents}
+
+    def upload_file(self, filename: str, bucket: str, key: str, **kwargs):
+        self.objects[key] = Path(filename).read_bytes()
+        self.uploads.append(key)
+
+    def download_file(self, bucket: str, key: str, filename: str, **kwargs):
+        Path(filename).write_bytes(self.objects[key])
+
+    def delete_objects(self, *, Bucket: str, Delete: dict):
+        for item in Delete["Objects"]:
+            self.objects.pop(item["Key"], None)
+        return {}
+
+    def get_object(self, *, Bucket: str, Key: str):
+        if Key not in self.objects:
+            raise KeyError(Key)
+        return {"Body": BytesIO(self.objects[Key])}
 
 
 def test_repo_id_validation_rejects_path_traversal():
@@ -63,6 +115,36 @@ def test_indexer_marks_pickle_compatible_files(tmp_path: Path):
     assert details is not None
     assert details["unsafe_file_count"] == 1
     assert details["files"][0]["unsafe_serialization"] is True
+
+
+def test_indexer_fails_closed_for_upload_without_ownership_metadata(tmp_path: Path):
+    storage = (tmp_path / "models").resolve()
+    model = storage / "former-owner" / "private-model"
+    model.mkdir(parents=True)
+    (model / "config.json").write_text("{}", encoding="utf-8")
+    (model / ".hugginghack.json").write_text(
+        json.dumps(
+            {
+                "status": "complete",
+                "repo_id": "former-owner/private-model",
+                "source": "user-upload",
+                "owner_id": "missing-user",
+            }
+        ),
+        encoding="utf-8",
+    )
+    settings = Settings(
+        model_storage=storage,
+        data_dir=(tmp_path / "data").resolve(),
+    )
+    database = Database(settings.database_path)
+    database.initialize()
+    indexer = LocalModelIndexer(settings, database)
+
+    result = indexer.scan()
+
+    assert result["count"] == 0
+    assert database.get_local_model("former-owner/private-model") is None
 
 
 def test_cancelled_download_keeps_partial_files_and_resume_metadata(tmp_path: Path):
@@ -120,6 +202,80 @@ def test_cancelled_download_keeps_partial_files_and_resume_metadata(tmp_path: Pa
     assert (target / "weights.safetensors.incomplete").is_file()
     manifest = json.loads((target / ".hugginghack.json").read_text(encoding="utf-8"))
     assert manifest["status"] == "cancelled"
+
+
+def test_completed_download_syncs_durable_storage_before_indexing(tmp_path: Path):
+    storage = (tmp_path / "models").resolve()
+    settings = Settings(
+        model_storage=storage,
+        data_dir=(tmp_path / "data").resolve(),
+    )
+    settings.ensure_directories()
+    database = Database(settings.database_path)
+    database.initialize()
+    indexer = LocalModelIndexer(settings, database)
+
+    class Hub:
+        @staticmethod
+        def model_details(repo_id: str, revision: str):
+            return {
+                "total_bytes": 7,
+                "files": [{"path": "model.safetensors", "size": 7}],
+                "source_url": "https://huggingface.co/acme/tiny",
+                "sha": "abc123",
+                "pipeline_tag": "text-generation",
+                "library_name": "transformers",
+                "license": "mit",
+                "tags": ["transformers"],
+                "gated": False,
+            }
+
+    class DurableStorage(FilesystemModelStorage):
+        def __init__(self, configured_settings: Settings):
+            super().__init__(configured_settings)
+            self.synced: list[str] = []
+
+        def sync_repository(self, repo_id: str, root: Path):
+            manifest = json.loads(
+                (root / ".hugginghack.json").read_text(encoding="utf-8")
+            )
+            assert manifest["status"] == "complete"
+            self.synced.append(repo_id)
+            return "s3://model-bucket/models/acme/tiny"
+
+    durable = DurableStorage(settings)
+    manager = DownloadManager(settings, database, Hub(), indexer, durable)
+    created = "2026-07-24T12:00:00+00:00"
+    database.create_download(
+        {
+            "id": "complete-me",
+            "repo_id": "acme/tiny",
+            "revision": "main",
+            "status": "queued",
+            "total_bytes": 0,
+            "downloaded_bytes": 0,
+            "progress": 0,
+            "speed_bps": 0,
+            "error": None,
+            "target_path": str(storage / "acme" / "tiny"),
+            "payload_json": "{}",
+            "metadata_json": "{}",
+            "created_at": created,
+            "updated_at": created,
+            "completed_at": None,
+        }
+    )
+
+    def write_snapshot(download_id, download, target, cancel_event):
+        (target / "model.safetensors").write_bytes(b"weights")
+
+    manager._download_snapshot = write_snapshot  # type: ignore[method-assign]
+    manager._run("complete-me")
+    manager.shutdown()
+
+    assert durable.synced == ["acme/tiny"]
+    assert database.get_download("complete-me")["status"] == "complete"
+    assert database.get_local_model("acme/tiny") is not None
 
 
 def test_accounts_use_scrypt_and_separate_saved_libraries(tmp_path: Path):
@@ -236,12 +392,57 @@ def test_database_migrates_existing_download_history(tmp_path: Path):
     assert legacy["user_id"] is None
 
 
+def test_database_migrates_local_models_for_s3_cache_state(tmp_path: Path):
+    database_path = tmp_path / "data" / "hugginghack.sqlite3"
+    database_path.parent.mkdir(parents=True)
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE local_models (
+                repo_id TEXT PRIMARY KEY,
+                relative_path TEXT NOT NULL UNIQUE,
+                size_bytes INTEGER NOT NULL DEFAULT 0,
+                file_count INTEGER NOT NULL DEFAULT 0,
+                modified_at TEXT NOT NULL,
+                downloaded_at TEXT,
+                revision TEXT,
+                sha TEXT,
+                pipeline_tag TEXT,
+                library_name TEXT,
+                license TEXT,
+                tags_json TEXT NOT NULL DEFAULT '[]',
+                config_json TEXT NOT NULL DEFAULT '{}',
+                source_url TEXT,
+                managed INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO local_models (
+                repo_id, relative_path, modified_at
+            ) VALUES ('acme/model', 'acme/model', 'now')
+            """
+        )
+
+    database = Database(database_path)
+    database.initialize()
+
+    legacy = database.get_local_model("acme/model")
+    assert legacy is not None
+    assert legacy["storage_backend"] == "filesystem"
+    assert legacy["cached"] is True
+    assert legacy["remote_uri"] is None
+
+
 def test_chunked_upload_is_confined_owned_and_indexed(tmp_path: Path):
     storage = (tmp_path / "models").resolve()
     data = (tmp_path / "data").resolve()
     settings = Settings(
         model_storage=storage,
         data_dir=data,
+        model_storage_backend="s3",
+        s3_bucket="model-bucket",
         accounts_enabled=True,
         upload_chunk_mb=1,
         max_upload_size_gb=1,
@@ -253,7 +454,9 @@ def test_chunked_upload_is_confined_owned_and_indexed(tmp_path: Path):
     owner = auth.create_user("owner", "Owner", "correct horse battery", "admin")
     member = auth.create_user("member", "Member", "another secure phrase", "member")
     indexer = LocalModelIndexer(settings, database)
-    manager = UploadManager(settings, database, indexer)
+    fake_s3 = FakeS3Client()
+    model_storage = S3ModelStorage(settings, client=fake_s3)
+    manager = UploadManager(settings, database, indexer, model_storage)
 
     repository = manager.create_repository(
         owner, "tiny-upload", "Private test repository", "private"
@@ -280,7 +483,14 @@ def test_chunked_upload_is_confined_owned_and_indexed(tmp_path: Path):
         (storage / repository["repo_id"] / ".hugginghack.json").read_text(encoding="utf-8")
     )
     assert manifest["file_count"] == 3
-    assert database.get_local_model(repository["repo_id"]) is not None
+    indexed_model = database.get_local_model(repository["repo_id"])
+    assert indexed_model is not None
+    assert indexed_model["storage_backend"] == "s3"
+    assert indexed_model["cached"] is True
+    assert (
+        f"models/{repository['repo_id']}/.hugginghack.json"
+        in fake_s3.objects
+    )
     assert database.get_visible_local_model(owner["id"], repository["repo_id"]) is not None
     assert database.get_visible_local_model(member["id"], repository["repo_id"]) is None
 
@@ -294,8 +504,93 @@ def test_chunked_upload_is_confined_owned_and_indexed(tmp_path: Path):
         repository["repo_id"], owner["id"], repository["repo_id"]
     )
     assert not (storage / repository["repo_id"]).exists()
+    assert not any(
+        key.startswith(f"models/{repository['repo_id']}/")
+        for key in fake_s3.objects
+    )
     assert database.get_owned_repository(repository["repo_id"]) is None
 
     for value in ("../secret", "/absolute/file", ".git/config", ".hugginghack.json"):
         with pytest.raises(ValueError):
             validate_upload_path(value)
+
+
+def test_s3_storage_sync_discover_evict_and_restore(tmp_path: Path):
+    storage = (tmp_path / "models").resolve()
+    settings = Settings(
+        model_storage=storage,
+        data_dir=(tmp_path / "data").resolve(),
+        model_storage_backend="s3",
+        s3_bucket="model-bucket",
+        s3_prefix="library",
+    )
+    root = storage / "acme" / "tiny"
+    root.mkdir(parents=True)
+    (root / "config.json").write_text(
+        json.dumps({"model_type": "llama", "architectures": ["TinyLM"]}),
+        encoding="utf-8",
+    )
+    (root / "model.safetensors").write_bytes(b"weights")
+    (root / ".hugginghack.json").write_text(
+        json.dumps(
+            {
+                "status": "complete",
+                "repo_id": "acme/tiny",
+                "downloaded_at": "2026-07-24T12:00:00+00:00",
+                "total_bytes": 7,
+                "file_count": 3,
+            }
+        ),
+        encoding="utf-8",
+    )
+    fake = FakeS3Client()
+    fake.objects["library/acme/tiny/obsolete.bin"] = b"old"
+    model_storage = S3ModelStorage(
+        settings,
+        client=fake,
+        transfer_config=object(),
+    )
+
+    uri = model_storage.sync_repository("acme/tiny", root)
+
+    assert uri == "s3://model-bucket/library/acme/tiny"
+    assert "library/acme/tiny/obsolete.bin" not in fake.objects
+    assert fake.uploads[-1] == "library/acme/tiny/.hugginghack.json"
+    remote_manifest = json.loads(fake.objects[fake.uploads[-1]])
+    assert remote_manifest["storage_backend"] == "s3"
+    assert remote_manifest["config"]["model_type"] == "llama"
+    discovered = model_storage.discover_repositories()
+    assert len(discovered) == 1
+    assert discovered[0]["repo_id"] == "acme/tiny"
+    assert discovered[0]["cached"] is True
+    assert model_storage.health()["connected"] is True
+
+    model_storage.evict_repository_cache("acme/tiny")
+    assert not root.exists()
+    assert model_storage.discover_repositories()[0]["cached"] is False
+
+    restored = model_storage.restore_repository("acme/tiny")
+    assert restored == root
+    assert (root / "model.safetensors").read_bytes() == b"weights"
+    assert json.loads((root / ".hugginghack.json").read_text(encoding="utf-8"))[
+        "status"
+    ] == "complete"
+
+
+def test_s3_restore_rejects_traversal_keys(tmp_path: Path):
+    settings = Settings(
+        model_storage=(tmp_path / "models").resolve(),
+        data_dir=(tmp_path / "data").resolve(),
+        model_storage_backend="s3",
+        s3_bucket="model-bucket",
+    )
+    fake = FakeS3Client()
+    manifest = json.dumps({"status": "complete", "repo_id": "acme/tiny"}).encode()
+    fake.objects["models/acme/tiny/.hugginghack.json"] = manifest
+    fake.objects["models/acme/tiny/../escape.bin"] = b"nope"
+    model_storage = S3ModelStorage(settings, client=fake)
+
+    with pytest.raises(ValueError, match="escapes"):
+        model_storage.restore_repository("acme/tiny")
+
+    assert not (tmp_path / "models" / "acme" / "escape.bin").exists()

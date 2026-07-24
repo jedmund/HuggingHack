@@ -20,6 +20,8 @@ import {
   Archive,
   Boxes,
   Check,
+  Cloud,
+  CloudDownload,
   Download,
   ExternalLink,
   File,
@@ -28,6 +30,7 @@ import {
   LoaderCircle,
   LockKeyhole,
   ShieldCheck,
+  Trash2,
   X,
 } from 'lucide-react'
 import { api } from '../api'
@@ -518,11 +521,14 @@ export function ModelDrawer({ repoId, onClose, onQueued }: ModelDrawerProps) {
 interface LocalDrawerProps {
   repoId: string | null
   onClose: () => void
+  onChanged: () => void
+  onToast: (message: string, tone?: 'success' | 'error') => void
 }
 
-export function LocalDrawer({ repoId, onClose }: LocalDrawerProps) {
+export function LocalDrawer({ repoId, onClose, onChanged, onToast }: LocalDrawerProps) {
   const [details, setDetails] = useState<LocalModelDetails | null>(null)
   const [error, setError] = useState('')
+  const [changingCache, setChangingCache] = useState(false)
 
   useEffect(() => {
     let ignore = false
@@ -542,6 +548,37 @@ export function LocalDrawer({ repoId, onClose }: LocalDrawerProps) {
     }
   }, [repoId])
 
+  async function changeCache() {
+    if (!details || details.model.storage_backend !== 's3') return
+    if (
+      details.model.cached
+      && !window.confirm(
+        `Remove the local cache for ${details.model.repo_id}? The complete S3 copy will remain.`,
+      )
+    ) return
+    setChangingCache(true)
+    setError('')
+    try {
+      if (details.model.cached) {
+        await api.evictLocalModelCache(details.model.repo_id)
+        const remoteDetails = await api.localModelDetails(details.model.repo_id)
+        setDetails(remoteDetails)
+        onToast(`${details.model.repo_id} is now stored in S3 only.`)
+      } else {
+        const restored = await api.restoreLocalModel(details.model.repo_id)
+        setDetails(restored)
+        onToast(`${details.model.repo_id} was restored to the local cache.`)
+      }
+      onChanged()
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : 'Could not update the model cache.'
+      setError(message)
+      onToast(message, 'error')
+    } finally {
+      setChangingCache(false)
+    }
+  }
+
   if (!repoId) return null
   return (
     <div className="drawer-backdrop" role="presentation" onMouseDown={onClose}>
@@ -554,7 +591,9 @@ export function LocalDrawer({ repoId, onClose }: LocalDrawerProps) {
       >
         <div className="drawer-header">
           <div>
-            <span className="eyebrow">Local NAS model</span>
+            <span className="eyebrow">
+              {details?.model.storage_backend === 's3' ? 'S3-backed model' : 'Local model'}
+            </span>
             <h2>{repoId}</h2>
           </div>
           <button type="button" className="icon-button" onClick={onClose} aria-label="Close">
@@ -570,15 +609,44 @@ export function LocalDrawer({ repoId, onClose }: LocalDrawerProps) {
         {details && (
           <>
             <div className="local-detail-hero">
-              <HardDrive size={24} />
+              {details.model.cached ? <HardDrive size={24} /> : <Cloud size={24} />}
               <div>
-                <code>/models/{details.model.relative_path}</code>
+                <code>
+                  {details.model.cached
+                    ? `/models/${details.model.relative_path}`
+                    : details.model.remote_uri}
+                </code>
                 <p>
                   {formatBytes(details.model.size_bytes)} across {details.model.file_count} files ·
                   updated {relativeTime(details.model.modified_at)}
+                  {details.model.storage_backend === 's3'
+                    ? details.model.cached ? ' · cached locally' : ' · S3 only'
+                    : ''}
                 </p>
               </div>
             </div>
+            {details.model.storage_backend === 's3' && (
+              <div className="local-storage-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={changingCache}
+                  onClick={changeCache}
+                >
+                  {changingCache
+                    ? <LoaderCircle size={16} className="spin" />
+                    : details.model.cached ? <Trash2 size={16} /> : <CloudDownload size={16} />}
+                  {changingCache
+                    ? 'Working…'
+                    : details.model.cached ? 'Remove local cache' : 'Restore to local cache'}
+                </button>
+                <p>
+                  {details.model.cached
+                    ? 'The durable S3 copy stays available.'
+                    : 'Restore before loading this model in vLLM, llama.cpp, or another local runtime.'}
+                </p>
+              </div>
+            )}
             {details.unsafe_file_count > 0 ? (
               <div className="security-note warning">
                 <AlertTriangle size={16} />

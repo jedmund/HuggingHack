@@ -1,6 +1,7 @@
 import {
   Boxes,
   Check,
+  Cloud,
   Download,
   FileBox,
   Heart,
@@ -188,6 +189,11 @@ export function LocalModelRow({ model, onOpen }: LocalRowProps) {
         <div className="repo-title-line">
           <h3>{model.repo_id}</h3>
           {model.managed && <span className="local-badge">Managed</span>}
+          {model.storage_backend === 's3' && (
+            <span className="local-badge">
+              <Cloud size={11} /> {model.cached ? 'S3 cached' : 'S3 only'}
+            </span>
+          )}
         </div>
         <div className="repo-tags">
           {model.pipeline_tag && <span className="task-tag">{taskLabel(model.pipeline_tag)}</span>}
@@ -201,7 +207,9 @@ export function LocalModelRow({ model, onOpen }: LocalRowProps) {
           <span>{formatBytes(model.size_bytes)}</span>
           <span>Indexed {relativeTime(model.modified_at)}</span>
         </div>
-        <code className="repo-path">{model.relative_path}</code>
+        <code className="repo-path">
+          {model.cached ? model.relative_path : model.remote_uri || model.relative_path}
+        </code>
       </div>
     </article>
   )

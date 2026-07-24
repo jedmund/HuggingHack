@@ -8,6 +8,7 @@ import {
   ChevronDown,
   CircleX,
   Clock3,
+  Cloud,
   Download,
   Filter,
   HardDrive,
@@ -375,7 +376,7 @@ function LocalPage({ onToast }: { onToast: ToastHandler }) {
     setScanning(true)
     try {
       const result = await api.scanLocalModels()
-      onToast(`NAS scan complete: ${result.count} model${result.count === 1 ? '' : 's'} indexed.`)
+      onToast(`Storage scan complete: ${result.count} model${result.count === 1 ? '' : 's'} indexed.`)
       load()
     } catch (reason) {
       onToast(reason instanceof Error ? reason.message : 'NAS scan failed', 'error')
@@ -393,36 +394,52 @@ function LocalPage({ onToast }: { onToast: ToastHandler }) {
       <div className="standard-page">
         <div className="page-heading">
           <div>
-            <span className="eyebrow">Indexed from the mounted model folder</span>
+            <span className="eyebrow">Indexed from local cache and durable storage</span>
             <h1>Local library</h1>
-            <p>Everything here is stored on your disk or NAS—not inside the container image.</p>
+            <p>Browse models on disk, NAS, or S3 and restore remote copies only when you need them.</p>
           </div>
           <button className="secondary-button" onClick={scan} disabled={scanning}>
             {scanning ? <LoaderCircle size={16} className="spin" /> : <RefreshCw size={16} />}
-            {scanning ? 'Scanning…' : 'Scan folder'}
+            {scanning ? 'Scanning…' : 'Scan storage'}
           </button>
         </div>
 
         <section className="storage-strip">
           <div className="storage-icon">
-            <HardDrive size={23} />
+            {health?.object_storage.enabled ? <Cloud size={23} /> : <HardDrive size={23} />}
           </div>
           <div className="storage-main">
             <div className="storage-title">
-              <strong>{health?.storage.writable ? 'Model storage online' : 'Model storage needs attention'}</strong>
-              <code>{health?.storage.path || '/models'}</code>
+              <strong>
+                {health?.object_storage.enabled
+                  ? health.object_storage.connected ? 'S3 storage online' : 'S3 storage needs attention'
+                  : health?.storage.writable ? 'Model storage online' : 'Model storage needs attention'}
+              </strong>
+              <code>
+                {health?.object_storage.enabled
+                  ? `s3://${health.object_storage.bucket}/${health.object_storage.prefix || ''}`
+                  : health?.storage.path || '/models'}
+              </code>
             </div>
             <div className="capacity-track" aria-label={`${capacityPercent.toFixed(0)} percent of volume used`}>
               <span style={{ width: `${capacityPercent}%` }} />
             </div>
             <div className="storage-meta">
-              <span>{health ? `${formatBytes(health.storage.free_bytes)} free on mounted volume` : 'Reading volume…'}</span>
+              <span>{health ? `${formatBytes(health.storage.free_bytes)} free in local cache` : 'Reading volume…'}</span>
               <span>{formatBytes(totalBytes)} indexed models</span>
             </div>
           </div>
-          <span className={health?.storage.writable ? 'status-pill ok' : 'status-pill danger'}>
-            {health?.storage.writable ? <Check size={13} /> : <AlertCircle size={13} />}
-            {health?.storage.writable ? 'Writable' : 'Read only'}
+          <span className={
+            health?.storage.writable && health?.object_storage.connected
+              ? 'status-pill ok'
+              : 'status-pill danger'
+          }>
+            {health?.storage.writable && health?.object_storage.connected
+              ? <Check size={13} />
+              : <AlertCircle size={13} />}
+            {health?.object_storage.enabled
+              ? health.object_storage.connected ? 'Connected' : 'Offline'
+              : health?.storage.writable ? 'Writable' : 'Read only'}
           </span>
         </section>
 
@@ -442,13 +459,18 @@ function LocalPage({ onToast }: { onToast: ToastHandler }) {
           {!error && models.length === 0 && (
             <div className="empty-state spacious">
               <HardDrive size={34} />
-              <h2>Your local model library is empty</h2>
-              <p>Download a model from the Models page or copy an existing repository into the mounted folder.</p>
+              <h2>Your model library is empty</h2>
+              <p>Download a model, copy a repository into the cache, or connect an S3 bucket.</p>
             </div>
           )}
         </div>
       </div>
-      <LocalDrawer repoId={selected} onClose={() => setSelected(null)} />
+      <LocalDrawer
+        repoId={selected}
+        onClose={() => setSelected(null)}
+        onChanged={load}
+        onToast={onToast}
+      />
     </>
   )
 }
@@ -664,15 +686,37 @@ function SettingsPage({
           <div className="settings-section-title">
             <Server size={20} />
             <div>
-              <h2>Storage mount</h2>
-              <p>The container always sees your configured host folder as /models.</p>
+              <h2>{health?.object_storage.enabled ? 'S3 + local cache' : 'Storage mount'}</h2>
+              <p>
+                {health?.object_storage.enabled
+                  ? 'S3 is durable storage; /models is the working cache used by inference engines.'
+                  : 'The container sees your configured host folder as /models.'}
+              </p>
             </div>
           </div>
           <dl className="settings-list">
             <div>
-              <dt>Container path</dt>
+              <dt>Cache path</dt>
               <dd><code>{health?.storage.path || '/models'}</code></dd>
             </div>
+            {health?.object_storage.enabled && (
+              <>
+                <div>
+                  <dt>S3 location</dt>
+                  <dd>
+                    <code>
+                      s3://{health.object_storage.bucket}/{health.object_storage.prefix || ''}
+                    </code>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Connection</dt>
+                  <dd className={health.object_storage.connected ? 'good-text' : 'danger-text'}>
+                    {health.object_storage.connected ? 'Connected' : health.object_storage.error || 'Unavailable'}
+                  </dd>
+                </div>
+              </>
+            )}
             <div>
               <dt>Write access</dt>
               <dd className={health?.storage.writable ? 'good-text' : 'danger-text'}>
@@ -686,7 +730,11 @@ function SettingsPage({
           </dl>
           <div className="code-block">
             <span>.env</span>
-            <code>MODEL_STORAGE_PATH=/volume1/AI/models</code>
+            <code>
+              {health?.object_storage.enabled
+                ? 'MODEL_STORAGE_BACKEND=s3\nS3_BUCKET=my-models\nS3_PREFIX=models'
+                : 'MODEL_STORAGE_PATH=/volume1/AI/models'}
+            </code>
           </div>
         </section>
 

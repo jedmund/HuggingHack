@@ -6,11 +6,22 @@ export interface StorageHealth {
   writable: boolean
 }
 
+export interface ObjectStorageHealth {
+  backend: 'filesystem' | 's3'
+  enabled: boolean
+  connected: boolean
+  bucket?: string | null
+  prefix?: string | null
+  endpoint?: string | null
+  error?: string | null
+}
+
 export interface Health {
   status: string
   app: string
   version: string
   storage: StorageHealth
+  object_storage: ObjectStorageHealth
   hf_token_configured: boolean
   hf_endpoint: string
   accounts_enabled: boolean
@@ -109,6 +120,9 @@ export interface LocalModel {
   config: Record<string, unknown>
   source_url?: string | null
   managed: boolean
+  storage_backend: 'filesystem' | 's3'
+  cached: boolean
+  remote_uri?: string | null
 }
 
 export interface LocalFile {

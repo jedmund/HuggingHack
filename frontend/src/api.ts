@@ -103,6 +103,15 @@ export const api = {
     ),
   localModelDetails: (repoId: string) =>
     request<LocalModelDetails>(`/api/local-models/${repoPath(repoId)}`),
+  restoreLocalModel: (repoId: string) =>
+    request<LocalModelDetails>(`/api/local-models/${repoPath(repoId)}/restore`, {
+      method: 'POST',
+    }),
+  evictLocalModelCache: (repoId: string) =>
+    request<{ status: string; model: LocalModel }>(
+      `/api/local-models/${repoPath(repoId)}/cache`,
+      { method: 'DELETE' },
+    ),
   collections: () => request<{ items: Collection[] }>('/api/collections'),
   createCollection: (payload: { name: string; description?: string }) =>
     request<Collection>('/api/collections', {

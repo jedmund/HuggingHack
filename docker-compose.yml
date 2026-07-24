@@ -12,8 +12,9 @@ services:
       - "${HUGGINGHACK_PORT:-7860}:7860"
     environment:
       APP_NAME: HuggingHack
-      APP_VERSION: 1.1.0
+      APP_VERSION: 1.2.0
       MODEL_STORAGE: /models
+      MODEL_STORAGE_BACKEND: "${MODEL_STORAGE_BACKEND:-filesystem}"
       DATA_DIR: /data
       HF_ENDPOINT: "${HF_ENDPOINT:-https://huggingface.co}"
       HF_TOKEN: "${HF_TOKEN:-}"
@@ -24,6 +25,19 @@ services:
       SESSION_TTL_HOURS: "${SESSION_TTL_HOURS:-720}"
       UPLOAD_CHUNK_MB: "${UPLOAD_CHUNK_MB:-8}"
       MAX_UPLOAD_SIZE_GB: "${MAX_UPLOAD_SIZE_GB:-1024}"
+      S3_BUCKET: "${S3_BUCKET:-}"
+      S3_PREFIX: "${S3_PREFIX:-models}"
+      S3_REGION: "${S3_REGION:-}"
+      S3_ENDPOINT_URL: "${S3_ENDPOINT_URL:-}"
+      S3_ADDRESSING_STYLE: "${S3_ADDRESSING_STYLE:-auto}"
+      S3_USE_SSL: "${S3_USE_SSL:-true}"
+      S3_VERIFY_SSL: "${S3_VERIFY_SSL:-true}"
+      S3_STORAGE_CLASS: "${S3_STORAGE_CLASS:-}"
+      S3_MAX_CONCURRENCY: "${S3_MAX_CONCURRENCY:-4}"
+      S3_MULTIPART_CHUNK_MB: "${S3_MULTIPART_CHUNK_MB:-64}"
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-}"
+      AWS_SESSION_TOKEN: "${AWS_SESSION_TOKEN:-}"
       HF_HUB_DISABLE_TELEMETRY: "1"
     volumes:
       - "${MODEL_STORAGE_PATH:-./models}:/models"

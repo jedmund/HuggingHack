@@ -52,6 +52,7 @@
 - Built-in local accounts with a first-run owner, HTTP-only sessions, and administrator-created member accounts
 - Per-account saved models, private notes, and project or rig collections
 - Private or locally shared user repositories with resumable, chunked model-folder uploads
+- Optional S3-compatible durable storage with a local working cache, remote browsing, restore, and cache eviction
 - Ownership-verified repository deletion with exact-name confirmation
 - Optional read-only `HF_TOKEN` support for private and gated models
 - Light/dark themes and responsive desktop/mobile layouts
@@ -175,6 +176,42 @@ models/
 ```
 
 That layout is portable and works with vLLM, llama.cpp, Ollama import workflows, Transformers, Diffusers, and other tools that accept a local repository path.
+
+## Use S3-compatible model storage
+
+Set `MODEL_STORAGE_BACKEND=s3` to keep complete managed repositories in AWS S3 or an
+S3-compatible service such as MinIO or Ceph. `/models` remains a local working cache because
+vLLM, llama.cpp, and similar runtimes require filesystem paths.
+
+```dotenv
+MODEL_STORAGE_BACKEND=s3
+MODEL_STORAGE_PATH=./models
+S3_BUCKET=my-model-bucket
+S3_PREFIX=models
+S3_REGION=us-east-1
+AWS_ACCESS_KEY_ID=replace-me
+AWS_SECRET_ACCESS_KEY=replace-me
+```
+
+For MinIO or another custom endpoint:
+
+```dotenv
+S3_ENDPOINT_URL=http://minio:9000
+S3_ADDRESSING_STYLE=path
+S3_USE_SSL=false
+```
+
+HuggingHack also supports boto3's normal credential chain, including attached IAM roles, so
+static keys are optional on AWS. Credentials stay server-side and are never returned by the API.
+Downloads and finalized browser uploads sync automatically. The manifest is published last, so
+partially transferred repositories are not indexed as complete. From the Local library you can
+remove a local cache copy while keeping its durable S3 copy, then restore it when an inference
+runtime needs the files.
+
+The bucket identity needs `s3:ListBucket` on the bucket and `s3:GetObject`,
+`s3:PutObject`, and `s3:DeleteObject` on the configured prefix.
+Keep the `data` directory backed up too: private upload manifests fail closed unless their
+matching ownership metadata is present in SQLite.
 
 ## Move it to the NAS
 
@@ -314,6 +351,7 @@ npm run build
 ## Data ownership and backups
 
 - Models: the host path configured by `MODEL_STORAGE_PATH`
+- S3 mode: durable model objects in `S3_BUCKET` and working copies in `MODEL_STORAGE_PATH`
 - Accounts, sessions, saved collections, repository ownership, download history, and local index: `./data/hugginghack.sqlite3`
 - Hub metadata cache: `./data/hub-cache`
 

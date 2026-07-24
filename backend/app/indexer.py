@@ -100,6 +100,15 @@ class LocalModelIndexer:
         repo_id = manifest.get("repo_id") or (
             relative if "/" in relative else f"local/{relative}"
         )
+        if manifest.get("source") == "user-upload":
+            owner_id = manifest.get("owner_id")
+            if (
+                not owner_id
+                or not self.database.get_owned_repository(repo_id, owner_id)
+            ):
+                raise PermissionError(
+                    "User-uploaded repositories require matching ownership metadata."
+                )
         size, file_count, latest = directory_stats(resolved)
         tags = manifest.get("tags") or []
         record = {
@@ -125,9 +134,36 @@ class LocalModelIndexer:
             ),
             "source_url": manifest.get("source_url"),
             "managed": 1 if manifest else 0,
+            "storage_backend": manifest.get("storage_backend") or "filesystem",
+            "cached": 1,
+            "remote_uri": manifest.get("remote_uri"),
         }
         self.database.upsert_local_model(record)
         return self.database.get_local_model(repo_id)
+
+    def index_remote(self, model: dict[str, Any]) -> dict[str, Any] | None:
+        record = {
+            "repo_id": model["repo_id"],
+            "relative_path": model.get("relative_path") or model["repo_id"],
+            "size_bytes": int(model.get("size_bytes") or 0),
+            "file_count": int(model.get("file_count") or 0),
+            "modified_at": model.get("modified_at") or utc_now(),
+            "downloaded_at": model.get("downloaded_at"),
+            "revision": model.get("revision"),
+            "sha": model.get("sha"),
+            "pipeline_tag": model.get("pipeline_tag"),
+            "library_name": model.get("library_name"),
+            "license": model.get("license"),
+            "tags_json": json.dumps(model.get("tags") or []),
+            "config_json": json.dumps(model.get("config") or {}),
+            "source_url": model.get("source_url"),
+            "managed": int(bool(model.get("managed", True))),
+            "storage_backend": "s3",
+            "cached": int(bool(model.get("cached"))),
+            "remote_uri": model.get("remote_uri"),
+        }
+        self.database.upsert_local_model(record)
+        return self.database.get_local_model(model["repo_id"])
 
     def scan(self) -> dict[str, Any]:
         indexed = []
@@ -185,4 +221,3 @@ class LocalModelIndexer:
             "unsafe_file_count": unsafe_count,
             "truncated": len(files) >= limit,
         }
-

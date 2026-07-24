@@ -12,6 +12,7 @@ from typing import Any
 from .config import Settings, validate_repo_id
 from .database import Database
 from .indexer import LocalModelIndexer, directory_stats, utc_now
+from .storage import FilesystemModelStorage
 
 
 SLUG_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")
@@ -51,10 +52,12 @@ class UploadManager:
         settings: Settings,
         database: Database,
         indexer: LocalModelIndexer,
+        model_storage: FilesystemModelStorage | None = None,
     ):
         self.settings = settings
         self.database = database
         self.indexer = indexer
+        self.model_storage = model_storage or FilesystemModelStorage(settings)
         self._write_lock = threading.RLock()
 
     def _repository_root(self, repo_id: str) -> Path:
@@ -225,6 +228,7 @@ class UploadManager:
             (root / ".hugginghack.json").write_text(
                 json.dumps(manifest, indent=2), encoding="utf-8"
             )
+            self.model_storage.sync_repository(repo_id, root)
             self.indexer.index_path(root)
             updated = self.database.update_owned_repository(
                 repo_id, user_id, status="ready", updated_at=completed
@@ -262,12 +266,15 @@ class UploadManager:
             try:
                 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
-                raise ValueError("Repository manifest is missing or unreadable.") from None
+                manifest = self.model_storage.repository_manifest(repo_id)
+            if not manifest:
+                raise ValueError("Repository manifest is missing or unreadable.")
             if (
                 manifest.get("owner_id") != user_id
                 or manifest.get("source") != "user-upload"
             ):
                 raise ValueError("Repository ownership could not be verified.")
+            self.model_storage.delete_repository(repo_id)
             if root.exists():
                 shutil.rmtree(root)
             self.database.delete_owned_repository(repo_id, user_id)

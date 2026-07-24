@@ -27,8 +27,9 @@ def _boolean(name: str, default: bool) -> bool:
 @dataclass(frozen=True)
 class Settings:
     app_name: str = os.getenv("APP_NAME", "HuggingHack")
-    app_version: str = os.getenv("APP_VERSION", "1.1.0")
+    app_version: str = os.getenv("APP_VERSION", "1.2.0")
     model_storage: Path = Path(os.getenv("MODEL_STORAGE", "/models")).expanduser().resolve()
+    model_storage_backend: str = os.getenv("MODEL_STORAGE_BACKEND", "filesystem").strip().lower()
     data_dir: Path = Path(os.getenv("DATA_DIR", "/data")).expanduser().resolve()
     hf_endpoint: str = os.getenv("HF_ENDPOINT", "https://huggingface.co").rstrip("/")
     hf_token: str | None = os.getenv("HF_TOKEN") or None
@@ -39,6 +40,19 @@ class Settings:
     session_ttl_hours: int = _positive_int("SESSION_TTL_HOURS", 720, 8760)
     upload_chunk_mb: int = _positive_int("UPLOAD_CHUNK_MB", 8, 64)
     max_upload_size_gb: int = _positive_int("MAX_UPLOAD_SIZE_GB", 1024, 16384)
+    s3_bucket: str | None = os.getenv("S3_BUCKET") or None
+    s3_prefix: str = os.getenv("S3_PREFIX", "models").strip().strip("/")
+    s3_endpoint_url: str | None = os.getenv("S3_ENDPOINT_URL") or None
+    s3_region: str | None = os.getenv("S3_REGION") or None
+    s3_access_key_id: str | None = os.getenv("S3_ACCESS_KEY_ID") or None
+    s3_secret_access_key: str | None = os.getenv("S3_SECRET_ACCESS_KEY") or None
+    s3_session_token: str | None = os.getenv("S3_SESSION_TOKEN") or None
+    s3_use_ssl: bool = _boolean("S3_USE_SSL", True)
+    s3_verify_ssl: bool = _boolean("S3_VERIFY_SSL", True)
+    s3_addressing_style: str = os.getenv("S3_ADDRESSING_STYLE", "auto").strip().lower()
+    s3_storage_class: str | None = os.getenv("S3_STORAGE_CLASS") or None
+    s3_max_concurrency: int = _positive_int("S3_MAX_CONCURRENCY", 4, 32)
+    s3_multipart_chunk_mb: int = _positive_int("S3_MULTIPART_CHUNK_MB", 64, 512)
 
     @property
     def database_path(self) -> Path:
@@ -53,6 +67,10 @@ class Settings:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.hub_cache_path.mkdir(parents=True, exist_ok=True)
 
+    @property
+    def s3_enabled(self) -> bool:
+        return self.model_storage_backend == "s3"
+
 
 settings = Settings()
 
@@ -64,9 +82,10 @@ def validate_repo_id(repo_id: str) -> str:
     return value
 
 
-def repository_path(repo_id: str) -> Path:
+def repository_path(repo_id: str, root: Path | None = None) -> Path:
     validated = validate_repo_id(repo_id)
-    target = (settings.model_storage / validated).resolve()
-    if settings.model_storage != target and settings.model_storage not in target.parents:
+    storage_root = (root or settings.model_storage).resolve()
+    target = (storage_root / validated).resolve()
+    if storage_root != target and storage_root not in target.parents:
         raise ValueError("Repository path escapes the configured model storage.")
     return target

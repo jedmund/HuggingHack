@@ -17,6 +17,7 @@ from .config import Settings, repository_path, validate_repo_id
 from .database import Database
 from .hub_service import HubService
 from .indexer import LocalModelIndexer, directory_stats
+from .storage import FilesystemModelStorage
 
 
 def now_iso() -> str:
@@ -34,11 +35,13 @@ class DownloadManager:
         database: Database,
         hub: HubService,
         indexer: LocalModelIndexer,
+        model_storage: FilesystemModelStorage | None = None,
     ):
         self.settings = settings
         self.database = database
         self.hub = hub
         self.indexer = indexer
+        self.model_storage = model_storage or FilesystemModelStorage(settings)
         self.executor = ThreadPoolExecutor(
             max_workers=settings.max_concurrent_downloads,
             thread_name_prefix="hugginghack-download",
@@ -63,7 +66,7 @@ class DownloadManager:
             if active.get("user_id") != user_id:
                 raise ValueError("This model is already being downloaded by another account.")
             return active
-        target = repository_path(validated)
+        target = repository_path(validated, self.settings.model_storage)
         created = now_iso()
         payload = {
             "allow_patterns": [value for value in (allow_patterns or []) if value.strip()],
@@ -263,7 +266,7 @@ class DownloadManager:
                 return
             self._raise_if_cancelled(cancel_event)
             repo_id = validate_repo_id(download["repo_id"])
-            target = repository_path(repo_id)
+            target = repository_path(repo_id, self.settings.model_storage)
             target.mkdir(parents=True, exist_ok=True)
             self.database.update_download(
                 download_id,
@@ -341,6 +344,7 @@ class DownloadManager:
                 encoding="utf-8",
             )
             final_size, _, _ = directory_stats(target)
+            self.model_storage.sync_repository(repo_id, target)
             self.indexer.index_path(target)
             self.database.update_download(
                 download_id,

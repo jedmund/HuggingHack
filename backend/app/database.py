@@ -95,7 +95,10 @@ class Database:
                     tags_json TEXT NOT NULL DEFAULT '[]',
                     config_json TEXT NOT NULL DEFAULT '{}',
                     source_url TEXT,
-                    managed INTEGER NOT NULL DEFAULT 0
+                    managed INTEGER NOT NULL DEFAULT 0,
+                    storage_backend TEXT NOT NULL DEFAULT 'filesystem',
+                    cached INTEGER NOT NULL DEFAULT 1,
+                    remote_uri TEXT
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_local_models_modified
@@ -155,6 +158,21 @@ class Database:
             }
             if "user_id" not in columns:
                 connection.execute("ALTER TABLE downloads ADD COLUMN user_id TEXT")
+            local_model_columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(local_models)").fetchall()
+            }
+            if "storage_backend" not in local_model_columns:
+                connection.execute(
+                    "ALTER TABLE local_models ADD COLUMN storage_backend "
+                    "TEXT NOT NULL DEFAULT 'filesystem'"
+                )
+            if "cached" not in local_model_columns:
+                connection.execute(
+                    "ALTER TABLE local_models ADD COLUMN cached INTEGER NOT NULL DEFAULT 1"
+                )
+            if "remote_uri" not in local_model_columns:
+                connection.execute("ALTER TABLE local_models ADD COLUMN remote_uri TEXT")
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_downloads_user_created "
                 "ON downloads(user_id, created_at DESC)"
@@ -176,6 +194,8 @@ class Database:
                     result[output_key] = {} if key != "tags_json" else []
         if "managed" in result:
             result["managed"] = bool(result["managed"])
+        if "cached" in result:
+            result["cached"] = bool(result["cached"])
         return result
 
     @staticmethod
@@ -371,11 +391,13 @@ class Database:
                 INSERT INTO local_models (
                     repo_id, relative_path, size_bytes, file_count, modified_at,
                     downloaded_at, revision, sha, pipeline_tag, library_name,
-                    license, tags_json, config_json, source_url, managed
+                    license, tags_json, config_json, source_url, managed,
+                    storage_backend, cached, remote_uri
                 ) VALUES (
                     :repo_id, :relative_path, :size_bytes, :file_count, :modified_at,
                     :downloaded_at, :revision, :sha, :pipeline_tag, :library_name,
-                    :license, :tags_json, :config_json, :source_url, :managed
+                    :license, :tags_json, :config_json, :source_url, :managed,
+                    :storage_backend, :cached, :remote_uri
                 )
                 ON CONFLICT(repo_id) DO UPDATE SET
                     relative_path = excluded.relative_path,
@@ -391,7 +413,10 @@ class Database:
                     tags_json = excluded.tags_json,
                     config_json = excluded.config_json,
                     source_url = excluded.source_url,
-                    managed = excluded.managed
+                    managed = excluded.managed,
+                    storage_backend = excluded.storage_backend,
+                    cached = excluded.cached,
+                    remote_uri = excluded.remote_uri
                 """,
                 record,
             )
@@ -422,12 +447,22 @@ class Database:
 
     def prune_local_models(self, relative_paths: set[str]) -> None:
         with self._write_lock, self.connect() as connection:
-            rows = connection.execute("SELECT relative_path FROM local_models").fetchall()
+            rows = connection.execute(
+                "SELECT relative_path FROM local_models WHERE storage_backend = 'filesystem'"
+            ).fetchall()
             stale = [row["relative_path"] for row in rows if row["relative_path"] not in relative_paths]
             connection.executemany(
                 "DELETE FROM local_models WHERE relative_path = ?",
                 ((path,) for path in stale),
             )
+
+    def set_local_model_cached(self, repo_id: str, cached: bool) -> dict[str, Any] | None:
+        with self._write_lock, self.connect() as connection:
+            connection.execute(
+                "UPDATE local_models SET cached = ? WHERE repo_id = ?",
+                (int(cached), repo_id),
+            )
+        return self.get_local_model(repo_id)
 
     def list_visible_local_models(
         self, user_id: str, query: str = ""

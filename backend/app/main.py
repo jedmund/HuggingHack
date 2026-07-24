@@ -20,15 +20,46 @@ from .database import Database
 from .downloads import DownloadManager
 from .hub_service import HubService
 from .indexer import LocalModelIndexer
+from .storage import create_model_storage
 from .uploads import UploadManager
 
 
 database = Database(settings.database_path)
 hub = HubService(settings)
 indexer = LocalModelIndexer(settings, database)
-downloads = DownloadManager(settings, database, hub, indexer)
+model_storage = create_model_storage(settings)
+downloads = DownloadManager(settings, database, hub, indexer, model_storage)
 auth = AuthService(settings, database)
-uploads = UploadManager(settings, database, indexer)
+uploads = UploadManager(settings, database, indexer, model_storage)
+
+
+def refresh_model_index() -> dict[str, Any]:
+    result = indexer.scan()
+    remote_models: list[dict[str, Any]] = []
+    remote_error = None
+    if model_storage.remote:
+        try:
+            remote_models = model_storage.discover_repositories()
+            for model in remote_models:
+                if model.get("source") == "user-upload":
+                    owner_id = model.get("owner_id")
+                    if (
+                        not owner_id
+                        or not database.get_owned_repository(model["repo_id"], owner_id)
+                    ):
+                        continue
+                indexer.index_remote(model)
+        except Exception as error:
+            remote_error = (str(error).strip() or error.__class__.__name__)[:500]
+    models = database.list_local_models()
+    return {
+        "count": len(models),
+        "models": models,
+        "local_count": result["count"],
+        "remote_count": len(remote_models),
+        "remote_error": remote_error,
+        "scanned_at": result["scanned_at"],
+    }
 
 
 @asynccontextmanager
@@ -36,7 +67,7 @@ async def lifespan(_: FastAPI):
     settings.ensure_directories()
     database.initialize()
     auth.ensure_local_user()
-    await run_in_threadpool(indexer.scan)
+    await run_in_threadpool(refresh_model_index)
     downloads.resume_unfinished()
     yield
     downloads.shutdown()
@@ -209,8 +240,9 @@ def auth_payload(session: dict[str, Any] | None = None) -> dict[str, Any]:
 def health() -> dict:
     settings.ensure_directories()
     usage = shutil.disk_usage(settings.model_storage)
+    object_storage = model_storage.health()
     return {
-        "status": "ok",
+        "status": "ok" if object_storage["connected"] else "degraded",
         "app": settings.app_name,
         "version": settings.app_version,
         "storage": {
@@ -220,6 +252,7 @@ def health() -> dict:
             "free_bytes": usage.free,
             "writable": os_access_writable(settings.model_storage),
         },
+        "object_storage": object_storage,
         "hf_token_configured": bool(settings.hf_token),
         "hf_endpoint": settings.hf_endpoint,
         "accounts_enabled": settings.accounts_enabled,
@@ -450,18 +483,73 @@ def local_models(
 
 @app.post("/api/local-models/scan")
 async def scan_local_models(_: WriteUser) -> dict:
-    return await run_in_threadpool(indexer.scan)
+    return await run_in_threadpool(refresh_model_index)
 
 
-@app.get("/api/local-models/{repo_id:path}")
-def local_model(repo_id: str, user: CurrentUser) -> dict:
+def visible_model(repo_id: str, user_id: str) -> dict[str, Any]:
     try:
         validated = validate_repo_id(repo_id)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
-    if not database.get_visible_local_model(user["id"], validated):
+    model = database.get_visible_local_model(user_id, validated)
+    if not model:
         raise HTTPException(status_code=404, detail="Local model not found")
-    result = indexer.files_for_model(validated)
+    return model
+
+
+@app.post("/api/local-models/{repo_id:path}/restore")
+async def restore_local_model(repo_id: str, user: WriteUser) -> dict:
+    model = visible_model(repo_id, user["id"])
+    if model["storage_backend"] != "s3":
+        raise HTTPException(status_code=409, detail="This model is not backed by S3.")
+    if database.find_active_download(model["repo_id"]):
+        raise HTTPException(
+            status_code=409,
+            detail="Wait for the active download to finish before restoring this cache.",
+        )
+    try:
+        root = await run_in_threadpool(model_storage.restore_repository, model["repo_id"])
+        await run_in_threadpool(indexer.index_path, root)
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    result = indexer.files_for_model(model["repo_id"])
+    if not result:
+        raise HTTPException(status_code=404, detail="Local model not found")
+    return result
+
+
+@app.delete("/api/local-models/{repo_id:path}/cache")
+async def evict_local_model_cache(repo_id: str, user: WriteUser) -> dict:
+    model = visible_model(repo_id, user["id"])
+    if model["storage_backend"] != "s3":
+        raise HTTPException(status_code=409, detail="Only S3-backed models have a removable cache.")
+    if database.find_active_download(model["repo_id"]):
+        raise HTTPException(
+            status_code=409,
+            detail="Wait for the active download to finish before removing this cache.",
+        )
+    try:
+        await run_in_threadpool(model_storage.evict_repository_cache, model["repo_id"])
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    updated = database.set_local_model_cached(model["repo_id"], False)
+    return {"status": "evicted", "model": updated}
+
+
+@app.get("/api/local-models/{repo_id:path}")
+def local_model(repo_id: str, user: CurrentUser) -> dict:
+    model = visible_model(repo_id, user["id"])
+    root = settings.model_storage / model["relative_path"]
+    if model["storage_backend"] == "s3" and (not model["cached"] or not root.is_dir()):
+        database.set_local_model_cached(model["repo_id"], False)
+        remote = model_storage.list_repository_files(model["repo_id"])
+        if not remote:
+            raise HTTPException(status_code=404, detail="S3 model files were not found.")
+        remote["model"] = database.get_local_model(model["repo_id"])
+        return remote
+    result = indexer.files_for_model(model["repo_id"])
     if not result:
         raise HTTPException(status_code=404, detail="Local model not found")
     return result
