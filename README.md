@@ -1,10 +1,46 @@
-# HuggingHack
+<p align="center">
+  <img src="frontend/public/hugginghack-mark.svg" width="92" alt="HuggingHack terminal-face mark">
+</p>
 
-HuggingHack is an unofficial, local-first Hugging Face Hub alternative for a home server or NAS. It searches the live Hugging Face model catalog, downloads repository snapshots directly into a mounted model folder, tracks progress, and indexes both managed downloads and models you copy into the folder yourself.
+<h1 align="center">HuggingHack</h1>
 
-It is not affiliated with or endorsed by Hugging Face.
+<p align="center">
+  <strong>Bring the Hugging Face Hub home.</strong><br>
+  Browse live models, choose exactly which files to keep, and build a clean local library on your PC or NAS.
+</p>
 
-## What is included
+<p align="center">
+  <img src="https://img.shields.io/badge/React-18-20232A?logo=react&logoColor=61DAFB" alt="React 18">
+  <img src="https://img.shields.io/badge/TypeScript-5.7-3178C6?logo=typescript&logoColor=white" alt="TypeScript 5.7">
+  <img src="https://img.shields.io/badge/FastAPI-0.116-009688?logo=fastapi&logoColor=white" alt="FastAPI 0.116">
+  <img src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white" alt="Docker Compose">
+  <img src="https://img.shields.io/badge/self--hosted-NAS%20ready-F59E0B" alt="Self-hosted and NAS ready">
+</p>
+
+<p align="center">
+  <a href="#features">Features</a> ·
+  <a href="#screenshots">Screenshots</a> ·
+  <a href="#quick-start-on-this-pc">Quick start</a> ·
+  <a href="#move-it-to-the-nas">NAS setup</a> ·
+  <a href="#security">Security</a>
+</p>
+
+![HuggingHack model catalog showing live model cards, filters, search, and download actions](docs/images/models-catalog.png)
+
+<p align="center"><sub>Live Hub discovery with practical metadata, storage-aware downloads, and no cloud dashboard in the middle.</sub></p>
+
+> [!NOTE]
+> HuggingHack is an unofficial, local-first project. It is not affiliated with or endorsed by Hugging Face.
+
+<table>
+  <tr>
+    <td width="33%" valign="top"><strong>🔎 Discover</strong><br>Search the live model catalog and narrow it by task, format, local app, parameter count, or popularity.</td>
+    <td width="33%" valign="top"><strong>🎯 Download precisely</strong><br>Keep a full repository, SafeTensors, one GGUF, metadata only, or your own include and exclude patterns.</td>
+    <td width="33%" valign="top"><strong>🏠 Own the library</strong><br>Store models in a plain folder on your disk or NAS and index files you copied there yourself.</td>
+  </tr>
+</table>
+
+## Features
 
 - Familiar Hub-style model catalog with visual, metadata-driven model cards plus task, format, local-app, parameter, and sort filters
 - Live Hugging Face metadata, repository file lists, richly rendered model cards, gated status, likes, and download counts
@@ -15,6 +51,25 @@ It is not affiliated with or endorsed by Hugging Face.
 - Optional read-only `HF_TOKEN` support for private and gated models
 - Light/dark themes and responsive desktop/mobile layouts
 - One Docker Compose service with persistent model and application-data mounts
+
+## Screenshots
+
+The catalog above is the main workspace. Open any model to inspect its repository, estimate storage, and choose the exact download mode without leaving the app.
+
+<table>
+  <tr>
+    <td width="68%" valign="top">
+      <img src="docs/images/model-details-dark.png" alt="HuggingHack dark-theme model details and download options">
+    </td>
+    <td width="32%" valign="top">
+      <img src="docs/images/mobile-catalog.png" alt="HuggingHack responsive mobile model catalog">
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Repository details and file-aware download controls in dark mode</sub></td>
+    <td align="center"><sub>The same live catalog on mobile</sub></td>
+  </tr>
+</table>
 
 ## Quick start on this PC
 
