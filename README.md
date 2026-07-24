@@ -59,7 +59,29 @@
 
 ## Screenshots
 
-The catalog above is the main workspace. Open any model to inspect its repository, estimate storage, and choose the exact download mode without leaving the app.
+The catalog above is the main workspace. Open any model to inspect its repository, estimate
+storage, and choose the exact download mode without leaving the app. Local accounts add
+private shortlists, notes, collections, and repositories without turning HuggingHack into a
+hosted service.
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/images/account-setup.png" alt="HuggingHack first-run owner account setup">
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/images/saved-library.png" alt="HuggingHack saved model library with collections and private notes">
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><sub>One-time local owner setup with no hosted identity service</sub></td>
+    <td align="center"><sub>Per-account model shortlists, collections, and private notes</sub></td>
+  </tr>
+</table>
+
+![HuggingHack account repositories with private and shared model uploads](docs/images/account-uploads.png)
+
+<p align="center"><sub>Resumable model-folder uploads into private or locally shared repositories on the mounted drive</sub></p>
 
 <table>
   <tr>
