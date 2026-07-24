@@ -30,10 +30,11 @@ import {
   useSearchParams,
 } from 'react-router-dom'
 import { api } from './api'
+import { AccountAdmin, AuthScreen, SavedPage, UploadsPage } from './components/AccountPages'
 import { LocalDrawer, ModelDrawer } from './components/Drawers'
 import { HubModelRow, LocalModelRow } from './components/RepositoryRows'
 import Shell from './components/Shell'
-import type { DownloadJob, Health, HubModel, LocalModel } from './types'
+import type { AuthStatus, DownloadJob, Health, HubModel, LocalModel, User } from './types'
 import { formatBytes, relativeTime } from './utils'
 
 type ToastTone = 'success' | 'error'
@@ -114,6 +115,7 @@ function ModelsPage({
   const [error, setError] = useState('')
   const [selected, setSelected] = useState<string | null>(null)
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
+  const [saving, setSaving] = useState<string | null>(null)
 
   useEffect(() => {
     const next = searchParams.get('search') || ''
@@ -152,6 +154,39 @@ function ModelsPage({
   }
 
   const activeFilters = [task, library, appFilter, parameters].filter(Boolean).length
+
+  async function toggleSaved(model: HubModel) {
+    setSaving(model.id)
+    try {
+      if (model.saved) {
+        await api.unsaveModel(model.id)
+        onToast(`${model.id} was removed from your saved library.`)
+      } else {
+        await api.saveModel({
+          repo_id: model.id,
+          metadata: {
+            author: model.author,
+            pipeline_tag: model.pipeline_tag,
+            library_name: model.library_name,
+            license: model.license,
+            parameter_count: model.parameter_count,
+            last_modified: model.last_modified,
+            local: model.local,
+          },
+        })
+        onToast(`${model.id} was saved for later.`)
+      }
+      setModels((current) =>
+        current.map((item) =>
+          item.id === model.id ? { ...item, saved: !model.saved } : item,
+        ),
+      )
+    } catch (reason) {
+      onToast(reason instanceof Error ? reason.message : 'Unable to update saved models', 'error')
+    } finally {
+      setSaving(null)
+    }
+  }
 
   return (
     <>
@@ -284,6 +319,8 @@ function ModelsPage({
                   model={model}
                   onOpen={setSelected}
                   onDownload={setSelected}
+                  onSave={toggleSaved}
+                  saving={saving === model.id}
                 />
               ))}
               {!error && models.length === 0 && (
@@ -601,7 +638,13 @@ function DownloadsPage({
   )
 }
 
-function SettingsPage() {
+function SettingsPage({
+  user,
+  onToast,
+}: {
+  user: User
+  onToast: ToastHandler
+}) {
   const [health, setHealth] = useState<Health | null>(null)
   useEffect(() => {
     api.health().then(setHealth).catch(() => undefined)
@@ -672,6 +715,7 @@ function SettingsPage() {
             <code>HF_TOKEN=hf_your_read_token</code>
           </div>
         </section>
+        <AccountAdmin user={user} onToast={onToast} />
       </div>
 
       <section className="settings-section security-section">
@@ -689,7 +733,7 @@ function SettingsPage() {
           </div>
           <div>
             <strong>Before exposing it publicly</strong>
-            <p>put the app behind authentication and TLS. The default setup is intended for a trusted home LAN.</p>
+            <p>keep accounts enabled, serve it through an HTTPS reverse proxy, and turn on secure cookies.</p>
           </div>
           <div>
             <strong>For gated models</strong>
@@ -706,7 +750,13 @@ function SettingsPage() {
   )
 }
 
-function Application() {
+function Application({
+  authStatus,
+  onAuthChange,
+}: {
+  authStatus: AuthStatus
+  onAuthChange: (status: AuthStatus) => void
+}) {
   const [jobs, setJobs] = useState<DownloadJob[]>([])
   const [toast, setToast] = useState<{ message: string; tone: ToastTone } | null>(null)
 
@@ -738,8 +788,18 @@ function Application() {
     [jobs],
   )
 
+  const user = authStatus.user as User
+
+  async function logout() {
+    try {
+      await api.logout()
+    } finally {
+      onAuthChange({ ...authStatus, user: null, csrf_token: null })
+    }
+  }
+
   return (
-    <Shell activeDownloads={activeDownloads}>
+    <Shell activeDownloads={activeDownloads} user={user} onLogout={logout}>
       <Routes>
         <Route path="/" element={<Navigate to="/models" replace />} />
         <Route
@@ -747,6 +807,8 @@ function Application() {
           element={<ModelsPage onToast={showToast} refreshDownloads={refreshDownloads} />}
         />
         <Route path="/local" element={<LocalPage onToast={showToast} />} />
+        <Route path="/saved" element={<SavedPage onToast={showToast} />} />
+        <Route path="/uploads" element={<UploadsPage user={user} onToast={showToast} />} />
         <Route
           path="/downloads"
           element={
@@ -757,7 +819,7 @@ function Application() {
             />
           }
         />
-        <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/settings" element={<SettingsPage user={user} onToast={showToast} />} />
         <Route path="*" element={<Navigate to="/models" replace />} />
       </Routes>
       {toast && (
@@ -771,9 +833,53 @@ function Application() {
 }
 
 export default function App() {
+  const [status, setStatus] = useState<AuthStatus | null>(null)
+  const [error, setError] = useState('')
+
+  const refreshAuth = useCallback(() => {
+    setError('')
+    api
+      .authStatus()
+      .then(setStatus)
+      .catch((reason) => setError(reason instanceof Error ? reason.message : 'Unable to reach HuggingHack'))
+  }, [])
+
+  useEffect(() => {
+    refreshAuth()
+    window.addEventListener('hugginghack:unauthorized', refreshAuth)
+    return () => window.removeEventListener('hugginghack:unauthorized', refreshAuth)
+  }, [refreshAuth])
+
+  if (error) {
+    return (
+      <main className="auth-layout auth-unavailable">
+        <section className="auth-card">
+          <AlertCircle size={28} />
+          <h1>HuggingHack is unavailable</h1>
+          <p>{error}</p>
+          <button className="secondary-button" onClick={refreshAuth}><RefreshCw size={16} /> Retry</button>
+        </section>
+      </main>
+    )
+  }
+
+  if (!status) {
+    return (
+      <main className="app-loading">
+        <img src="/hugginghack-mark.svg" alt="" />
+        <LoaderCircle size={23} className="spin" />
+        <span>Opening your model library…</span>
+      </main>
+    )
+  }
+
+  if (status.setup_required || !status.user) {
+    return <AuthScreen setup={status.setup_required} onAuthenticated={setStatus} />
+  }
+
   return (
     <HashRouter>
-      <Application />
+      <Application authStatus={status} onAuthChange={setStatus} />
     </HashRouter>
   )
 }

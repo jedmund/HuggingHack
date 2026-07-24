@@ -17,16 +17,28 @@ def _positive_int(name: str, default: int, maximum: int) -> int:
     return max(1, min(value, maximum))
 
 
+def _boolean(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass(frozen=True)
 class Settings:
     app_name: str = os.getenv("APP_NAME", "HuggingHack")
-    app_version: str = os.getenv("APP_VERSION", "1.0.0")
+    app_version: str = os.getenv("APP_VERSION", "1.1.0")
     model_storage: Path = Path(os.getenv("MODEL_STORAGE", "/models")).expanduser().resolve()
     data_dir: Path = Path(os.getenv("DATA_DIR", "/data")).expanduser().resolve()
     hf_endpoint: str = os.getenv("HF_ENDPOINT", "https://huggingface.co").rstrip("/")
     hf_token: str | None = os.getenv("HF_TOKEN") or None
     max_concurrent_downloads: int = _positive_int("MAX_CONCURRENT_DOWNLOADS", 2, 8)
     download_workers_per_job: int = _positive_int("DOWNLOAD_WORKERS_PER_JOB", 4, 16)
+    accounts_enabled: bool = _boolean("ACCOUNTS_ENABLED", True)
+    secure_cookies: bool = _boolean("SECURE_COOKIES", False)
+    session_ttl_hours: int = _positive_int("SESSION_TTL_HOURS", 720, 8760)
+    upload_chunk_mb: int = _positive_int("UPLOAD_CHUNK_MB", 8, 64)
+    max_upload_size_gb: int = _positive_int("MAX_UPLOAD_SIZE_GB", 1024, 16384)
 
     @property
     def database_path(self) -> Path:
@@ -58,4 +70,3 @@ def repository_path(repo_id: str) -> Path:
     if settings.model_storage != target and settings.model_storage not in target.parents:
         raise ValueError("Repository path escapes the configured model storage.")
     return target
-

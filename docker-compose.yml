@@ -12,13 +12,18 @@ services:
       - "${HUGGINGHACK_PORT:-7860}:7860"
     environment:
       APP_NAME: HuggingHack
-      APP_VERSION: 1.0.0
+      APP_VERSION: 1.1.0
       MODEL_STORAGE: /models
       DATA_DIR: /data
       HF_ENDPOINT: "${HF_ENDPOINT:-https://huggingface.co}"
       HF_TOKEN: "${HF_TOKEN:-}"
       MAX_CONCURRENT_DOWNLOADS: "${MAX_CONCURRENT_DOWNLOADS:-2}"
       DOWNLOAD_WORKERS_PER_JOB: "${DOWNLOAD_WORKERS_PER_JOB:-4}"
+      ACCOUNTS_ENABLED: "${ACCOUNTS_ENABLED:-true}"
+      SECURE_COOKIES: "${SECURE_COOKIES:-false}"
+      SESSION_TTL_HOURS: "${SESSION_TTL_HOURS:-720}"
+      UPLOAD_CHUNK_MB: "${UPLOAD_CHUNK_MB:-8}"
+      MAX_UPLOAD_SIZE_GB: "${MAX_UPLOAD_SIZE_GB:-1024}"
       HF_HUB_DISABLE_TELEMETRY: "1"
     volumes:
       - "${MODEL_STORAGE_PATH:-./models}:/models"
@@ -31,4 +36,3 @@ services:
       timeout: 10s
       retries: 3
       start_period: 20s
-

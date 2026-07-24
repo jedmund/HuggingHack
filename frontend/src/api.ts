@@ -1,4 +1,6 @@
 import type {
+  AuthStatus,
+  Collection,
   DownloadJob,
   DownloadMode,
   Health,
@@ -6,18 +8,34 @@ import type {
   HubModelDetails,
   LocalModel,
   LocalModelDetails,
+  OwnedRepository,
+  SavedModel,
+  User,
 } from './types'
 
+let csrfToken: string | null = null
+
+function applyAuth(status: AuthStatus): AuthStatus {
+  csrfToken = status.csrf_token
+  return status
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers)
+  if (init?.body && typeof init.body === 'string' && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
+  }
+  if (csrfToken && init?.method && !['GET', 'HEAD'].includes(init.method)) {
+    headers.set('X-CSRF-Token', csrfToken)
+  }
   const response = await fetch(path, {
+    credentials: 'same-origin',
     ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...init?.headers,
-    },
+    headers,
   })
   const payload = await response.json().catch(() => ({}))
   if (!response.ok) {
+    if (response.status === 401) window.dispatchEvent(new Event('hugginghack:unauthorized'))
     throw new Error(payload.detail || `Request failed with status ${response.status}`)
   }
   return payload as T
@@ -30,6 +48,29 @@ const repoPath = (repoId: string) =>
     .join('/')
 
 export const api = {
+  authStatus: () => request<AuthStatus>('/api/auth/status').then(applyAuth),
+  setup: (payload: { username: string; display_name: string; password: string }) =>
+    request<AuthStatus>('/api/auth/setup', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }).then(applyAuth),
+  login: (payload: { username: string; password: string }) =>
+    request<AuthStatus>('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }).then(applyAuth),
+  logout: () =>
+    request<{ status: string }>('/api/auth/logout', { method: 'POST' }).finally(() => {
+      csrfToken = null
+    }),
+  users: () => request<{ items: User[] }>('/api/users'),
+  createUser: (payload: { username: string; display_name: string; password: string }) =>
+    request<User>('/api/users', { method: 'POST', body: JSON.stringify(payload) }),
+  changePassword: (payload: { current_password: string; new_password: string }) =>
+    request<{ status: string }>('/api/account/password', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
   health: () => request<Health>('/api/health'),
   searchModels: (params: URLSearchParams) =>
     request<{ items: HubModel[]; count: number }>(`/api/hub/models?${params.toString()}`),
@@ -62,4 +103,113 @@ export const api = {
     ),
   localModelDetails: (repoId: string) =>
     request<LocalModelDetails>(`/api/local-models/${repoPath(repoId)}`),
+  collections: () => request<{ items: Collection[] }>('/api/collections'),
+  createCollection: (payload: { name: string; description?: string }) =>
+    request<Collection>('/api/collections', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  deleteCollection: (collectionId: string) =>
+    request<{ status: string }>(`/api/collections/${encodeURIComponent(collectionId)}`, {
+      method: 'DELETE',
+    }),
+  savedModels: (query = '', collectionId = '') => {
+    const params = new URLSearchParams()
+    if (query) params.set('query', query)
+    if (collectionId) params.set('collection_id', collectionId)
+    return request<{ items: SavedModel[]; count: number }>(
+      `/api/saved-models?${params.toString()}`,
+    )
+  },
+  saveModel: (payload: {
+    repo_id: string
+    note?: string
+    collection_ids?: string[]
+    metadata?: Record<string, unknown>
+  }) =>
+    request<SavedModel>('/api/saved-models', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  unsaveModel: (repoId: string) =>
+    request<{ status: string }>(`/api/saved-models/${repoPath(repoId)}`, {
+      method: 'DELETE',
+    }),
+  uploadRepositories: () =>
+    request<{ items: OwnedRepository[] }>('/api/uploads/repositories'),
+  createUploadRepository: (payload: {
+    slug: string
+    description?: string
+    visibility?: 'private' | 'shared'
+  }) =>
+    request<OwnedRepository>('/api/uploads/repositories', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  updateUploadRepository: (
+    repoId: string,
+    payload: { description: string; visibility: 'private' | 'shared' },
+  ) =>
+    request<OwnedRepository>(
+      `/api/uploads/repositories?repo_id=${encodeURIComponent(repoId)}`,
+      { method: 'PATCH', body: JSON.stringify(payload) },
+    ),
+  finalizeUploadRepository: (repoId: string) =>
+    request<OwnedRepository>(
+      `/api/uploads/repositories/finalize?repo_id=${encodeURIComponent(repoId)}`,
+      { method: 'POST' },
+    ),
+  deleteUploadRepository: (repoId: string, confirmation: string) =>
+    request<{ status: string }>(
+      `/api/uploads/repositories?repo_id=${encodeURIComponent(repoId)}`,
+      {
+        method: 'DELETE',
+        body: JSON.stringify({ confirmation }),
+      },
+    ),
+  uploadFile: async (
+    repoId: string,
+    filePath: string,
+    file: File,
+    chunkBytes: number,
+    onProgress: (uploaded: number) => void,
+  ) => {
+    const params = new URLSearchParams({ repo_id: repoId, path: filePath })
+    const status = await request<{ offset: number; complete: boolean }>(
+      `/api/uploads/repositories/files/status?${params.toString()}`,
+    )
+    if (status.complete && status.offset === file.size) {
+      onProgress(file.size)
+      return
+    }
+    if (status.complete || status.offset > file.size) {
+      throw new Error(`A different completed or partial file already exists at ${filePath}.`)
+    }
+    let offset = status.offset
+    do {
+      const chunk = file.slice(offset, Math.min(file.size, offset + chunkBytes))
+      const headers = new Headers({
+        'Content-Type': 'application/octet-stream',
+        'Upload-Offset': String(offset),
+        'Upload-Length': String(file.size),
+      })
+      if (csrfToken) headers.set('X-CSRF-Token', csrfToken)
+      const response = await fetch(
+        `/api/uploads/repositories/files?${params.toString()}`,
+        {
+          method: 'PUT',
+          credentials: 'same-origin',
+          headers,
+          body: chunk,
+        },
+      )
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(result.detail || `Upload failed with status ${response.status}`)
+      }
+      offset = result.offset
+      onProgress(offset)
+      if (file.size === 0) break
+    } while (offset < file.size)
+  },
 }

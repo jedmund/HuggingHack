@@ -15,6 +15,7 @@
   <img src="https://img.shields.io/badge/FastAPI-0.116-009688?logo=fastapi&logoColor=white" alt="FastAPI 0.116">
   <img src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white" alt="Docker Compose">
   <img src="https://img.shields.io/badge/self--hosted-NAS%20ready-F59E0B" alt="Self-hosted and NAS ready">
+  <a href="https://github.com/tyedalwaves/HuggingHack/actions/workflows/ci.yml"><img src="https://github.com/tyedalwaves/HuggingHack/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
 </p>
 
 <p align="center">
@@ -48,6 +49,10 @@
 - Background downloads with revision selection, byte progress, speed, cancellation, and history
 - Restart recovery: interrupted jobs resume through Hugging Face's local-dir metadata
 - Automatic local-library indexing with model size, file count, config metadata, and unsafe serialization warnings
+- Built-in local accounts with a first-run owner, HTTP-only sessions, and administrator-created member accounts
+- Per-account saved models, private notes, and project or rig collections
+- Private or locally shared user repositories with resumable, chunked model-folder uploads
+- Ownership-verified repository deletion with exact-name confirmation
 - Optional read-only `HF_TOKEN` support for private and gated models
 - Light/dark themes and responsive desktop/mobile layouts
 - One Docker Compose service with persistent model and application-data mounts
@@ -78,6 +83,8 @@ The catalog above is the main workspace. Open any model to inspect its repositor
 3. Open [http://localhost:7860](http://localhost:7860).
 
 The first launch builds the container. Later launches reuse the image unless the project changes.
+On the first browser visit, HuggingHack asks you to create the owner account. Use a unique
+password of at least 12 characters. The owner can add local member accounts from **Settings**.
 
 Command-line equivalent:
 
@@ -93,6 +100,37 @@ docker compose down
 ```
 
 Models and the SQLite database are persistent and are not removed by `docker compose down`.
+
+## Accounts, saved models, and uploads
+
+Accounts are local to this HuggingHack installation—there is no hosted identity service and
+no account data leaves the server. Each member gets a separate saved-model library, private
+notes, collections, and download history. Members can rotate their own password from
+**Settings**; doing so revokes their other active sessions.
+
+Use the heart on a Hub model to save it without downloading. The **Saved** workspace can
+organize those models into multiple collections, such as a project shortlist or a target rig.
+
+The **Uploads** workspace creates repositories under the signed-in owner name:
+
+```text
+models/
+  your-username/
+    your-repository/
+      .hugginghack.json
+      config.json
+      model.safetensors
+      ...
+```
+
+Choose a model folder in the browser and HuggingHack sends each file in bounded chunks.
+Interrupted uploads keep their progress and resume from the server's confirmed offset.
+Uploaded repositories are private by default; their owner can share them with every local
+account. Model files stay in the model mount rather than in SQLite.
+
+To preserve the original trusted-LAN behavior, set `ACCOUNTS_ENABLED=false`. This creates a
+single local compatibility identity and skips sign-in. Do not use that mode on an untrusted
+network.
 
 ## Choose the model folder
 
@@ -211,7 +249,9 @@ Manually copied models are indexed but never modified.
 - HuggingHack downloads files but does not execute repository code, import model modules, or deserialize weights.
 - Model cards are rendered as sanitized Markdown with safe HTML, readable code, tables, lists, and math; embedded scripts, forms, and frames are discarded.
 - Pickle-compatible formats can execute code when loaded by other applications. Prefer SafeTensors or GGUF and only load models from publishers you trust.
-- The default Compose file is intended for a trusted home LAN. If you expose it beyond the LAN, put it behind TLS and authentication using a reverse proxy such as Caddy, Traefik, or Nginx Proxy Manager.
+- Passwords are salted and hashed with `scrypt`; sessions use hashed random tokens in HTTP-only, SameSite cookies and state-changing requests require a per-session CSRF token.
+- Built-in accounts protect application data, but public exposure still requires HTTPS. Put HuggingHack behind a TLS reverse proxy such as Caddy, Traefik, or Nginx Proxy Manager and set `SECURE_COOKIES=true`.
+- Upload paths are confined to repositories owned by the signed-in account. Repository deletion verifies ownership and requires the exact repository name.
 - Use a read-only Hugging Face token.
 
 ## Development
@@ -252,7 +292,10 @@ npm run build
 ## Data ownership and backups
 
 - Models: the host path configured by `MODEL_STORAGE_PATH`
-- Download history and local index: `./data/hugginghack.sqlite3`
+- Accounts, sessions, saved collections, repository ownership, download history, and local index: `./data/hugginghack.sqlite3`
 - Hub metadata cache: `./data/hub-cache`
 
-Back up the models folder and `data` directory. The index can be rebuilt from model files, but the SQLite database preserves download history.
+Back up the models folder and `data` directory together. The index can be rebuilt from model
+files, but SQLite preserves accounts, saved-model organization, ownership, and download
+history. Store backups securely because the database contains password hashes and active
+session hashes.

@@ -13,6 +13,24 @@ export interface Health {
   storage: StorageHealth
   hf_token_configured: boolean
   hf_endpoint: string
+  accounts_enabled: boolean
+  upload_chunk_bytes: number
+  max_upload_size_bytes: number
+}
+
+export interface User {
+  id: string
+  username: string
+  display_name: string
+  role: 'admin' | 'member'
+  created_at: string
+}
+
+export interface AuthStatus {
+  accounts_enabled: boolean
+  setup_required: boolean
+  user: User | null
+  csrf_token: string | null
 }
 
 export interface HubFile {
@@ -39,6 +57,7 @@ export interface HubModel {
   license?: string | null
   parameter_count?: number | null
   local?: boolean
+  saved?: boolean
 }
 
 export interface HubModelDetails extends HubModel {
@@ -104,4 +123,48 @@ export interface LocalModelDetails {
   files: LocalFile[]
   unsafe_file_count: number
   truncated: boolean
+}
+
+export interface Collection {
+  id: string
+  user_id: string
+  name: string
+  description: string
+  model_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface SavedModel {
+  id: string
+  repo_id: string
+  note: string
+  metadata: {
+    author?: string | null
+    pipeline_tag?: string | null
+    library_name?: string | null
+    license?: string | null
+    parameter_count?: number | null
+    last_modified?: string | null
+    local?: boolean
+  }
+  collections: string[]
+  created_at: string
+  updated_at: string
+}
+
+export interface OwnedRepository {
+  id: string
+  owner_id: string
+  owner_username: string
+  owner_display_name: string
+  repo_id: string
+  description: string
+  visibility: 'private' | 'shared'
+  status: 'uploading' | 'ready'
+  size_bytes?: number | null
+  file_count?: number | null
+  modified_at?: string | null
+  created_at: string
+  updated_at: string
 }

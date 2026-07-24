@@ -1,29 +1,38 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import {
+  Bookmark,
   Box,
   Download,
   HardDrive,
+  LogOut,
   Menu,
   Moon,
   Search,
   Settings,
   Sun,
+  UploadCloud,
+  UserCircle,
   X,
 } from 'lucide-react'
 import { NavLink, useNavigate } from 'react-router-dom'
+import type { User } from '../types'
 
 interface ShellProps {
   children: ReactNode
   activeDownloads: number
+  user: User
+  onLogout: () => void
 }
 
 const links = [
   { to: '/models', label: 'Models', icon: Box },
   { to: '/local', label: 'Local library', icon: HardDrive },
+  { to: '/saved', label: 'Saved', icon: Bookmark },
+  { to: '/uploads', label: 'Uploads', icon: UploadCloud },
   { to: '/downloads', label: 'Downloads', icon: Download },
 ]
 
-export default function Shell({ children, activeDownloads }: ShellProps) {
+export default function Shell({ children, activeDownloads, user, onLogout }: ShellProps) {
   const navigate = useNavigate()
   const searchInput = useRef<HTMLInputElement>(null)
   const [query, setQuery] = useState('')
@@ -102,6 +111,13 @@ export default function Shell({ children, activeDownloads }: ShellProps) {
           >
             {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
           </button>
+          <div className="account-chip" title={`${user.display_name} · ${user.role}`}>
+            <UserCircle size={18} />
+            <span>{user.display_name}</span>
+            <button type="button" onClick={onLogout} aria-label="Sign out" title="Sign out">
+              <LogOut size={15} />
+            </button>
+          </div>
           <button
             type="button"
             className="icon-button mobile-menu-button"
@@ -135,6 +151,10 @@ export default function Shell({ children, activeDownloads }: ShellProps) {
               <Settings size={18} />
               Settings
             </NavLink>
+            <button type="button" className="mobile-account" onClick={onLogout}>
+              <LogOut size={18} />
+              Sign out {user.display_name}
+            </button>
           </div>
         )}
       </header>

@@ -14,7 +14,9 @@ interface HubRowProps {
   model: HubModel
   onOpen: (repoId: string) => void
   onDownload: (repoId: string) => void
+  onSave: (model: HubModel) => void
   queuing?: boolean
+  saving?: boolean
 }
 
 function visibleTags(model: HubModel): string[] {
@@ -50,7 +52,14 @@ function parameterLevel(value?: number | null): number {
   return 6
 }
 
-export function HubModelRow({ model, onOpen, onDownload, queuing }: HubRowProps) {
+export function HubModelRow({
+  model,
+  onOpen,
+  onDownload,
+  onSave,
+  queuing,
+  saving,
+}: HubRowProps) {
   const [owner, ...nameParts] = model.id.split('/')
   const name = nameParts.join('/')
   const level = parameterLevel(model.parameter_count)
@@ -116,18 +125,41 @@ export function HubModelRow({ model, onOpen, onDownload, queuing }: HubRowProps)
             <Heart size={13} /> {formatNumber(model.likes)}
           </span>
         </div>
-        <button
-          type="button"
-          className={model.local ? 'secondary-button compact model-card-action' : 'download-button compact model-card-action'}
-          disabled={queuing}
-          onClick={(event) => {
-            event.stopPropagation()
-            onDownload(model.id)
-          }}
-        >
-          {queuing ? <RefreshCw size={15} className="spin" /> : <Download size={15} />}
-          {model.local ? 'Update model' : 'Download'}
-        </button>
+        <div className="model-card-actions">
+          <button
+            type="button"
+            className={
+              model.local
+                ? 'secondary-button compact model-card-action'
+                : 'download-button compact model-card-action'
+            }
+            disabled={queuing}
+            onClick={(event) => {
+              event.stopPropagation()
+              onDownload(model.id)
+            }}
+          >
+            {queuing ? <RefreshCw size={15} className="spin" /> : <Download size={15} />}
+            {model.local ? 'Update model' : 'Download'}
+          </button>
+          <button
+            type="button"
+            className={model.saved ? 'save-model-button saved' : 'save-model-button'}
+            disabled={saving}
+            onClick={(event) => {
+              event.stopPropagation()
+              onSave(model)
+            }}
+            aria-label={model.saved ? `Remove ${model.id} from saved models` : `Save ${model.id}`}
+            title={model.saved ? 'Remove from saved models' : 'Save for later'}
+          >
+            {saving ? (
+              <RefreshCw size={16} className="spin" />
+            ) : (
+              <Heart size={16} fill={model.saved ? 'currentColor' : 'none'} />
+            )}
+          </button>
+        </div>
       </div>
     </article>
   )

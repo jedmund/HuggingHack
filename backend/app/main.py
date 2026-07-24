@@ -1,33 +1,41 @@
 from __future__ import annotations
 
+import json
 import shutil
+import sqlite3
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
+from .auth import AuthService, utc_iso
 from .config import settings, validate_repo_id
 from .database import Database
 from .downloads import DownloadManager
 from .hub_service import HubService
 from .indexer import LocalModelIndexer
+from .uploads import UploadManager
 
 
 database = Database(settings.database_path)
 hub = HubService(settings)
 indexer = LocalModelIndexer(settings, database)
 downloads = DownloadManager(settings, database, hub, indexer)
+auth = AuthService(settings, database)
+uploads = UploadManager(settings, database, indexer)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     settings.ensure_directories()
     database.initialize()
+    auth.ensure_local_user()
     await run_in_threadpool(indexer.scan)
     downloads.resume_unfinished()
     yield
@@ -44,10 +52,43 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
-    allow_credentials=False,
-    allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type"],
+    allow_credentials=True,
+    allow_methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"],
+    allow_headers=[
+        "Content-Type",
+        "X-CSRF-Token",
+        "Upload-Offset",
+        "Upload-Length",
+    ],
 )
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "same-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    return response
+
+
+class CredentialsRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=80)
+    password: str = Field(min_length=1, max_length=256)
+
+
+class SetupRequest(CredentialsRequest):
+    display_name: str = Field(default="", max_length=80)
+
+
+class CreateUserRequest(SetupRequest):
+    pass
+
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=256)
+    new_password: str = Field(min_length=12, max_length=256)
 
 
 class DownloadRequest(BaseModel):
@@ -75,6 +116,95 @@ class DownloadRequest(BaseModel):
         return cleaned
 
 
+class CollectionRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    description: str = Field(default="", max_length=240)
+
+
+class SavedModelRequest(BaseModel):
+    repo_id: str
+    note: str = Field(default="", max_length=1000)
+    collection_ids: list[str] = Field(default_factory=list, max_length=50)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("repo_id")
+    @classmethod
+    def saved_repo_is_valid(cls, value: str) -> str:
+        return validate_repo_id(value)
+
+
+class RepositoryRequest(BaseModel):
+    slug: str = Field(min_length=1, max_length=96)
+    description: str = Field(default="", max_length=500)
+    visibility: Literal["private", "shared"] = "private"
+
+
+class RepositoryUpdateRequest(BaseModel):
+    description: str = Field(default="", max_length=500)
+    visibility: Literal["private", "shared"] = "private"
+
+
+class DeleteRepositoryRequest(BaseModel):
+    confirmation: str = Field(min_length=1, max_length=200)
+
+
+def session_for_request(request: Request) -> dict[str, Any] | None:
+    return auth.session(request.cookies.get(auth.cookie_name))
+
+
+def require_user(request: Request) -> dict[str, Any]:
+    if auth.setup_required():
+        raise HTTPException(status_code=428, detail="Create the owner account first.")
+    session = session_for_request(request)
+    if not session or not session.get("user"):
+        raise HTTPException(status_code=401, detail="Sign in to continue.")
+    request.state.auth_session = session
+    return session["user"]
+
+
+def require_write_user(
+    request: Request, user: Annotated[dict[str, Any], Depends(require_user)]
+) -> dict[str, Any]:
+    session = request.state.auth_session
+    if not auth.verify_csrf(session, request.headers.get("X-CSRF-Token")):
+        raise HTTPException(status_code=403, detail="Security token is missing or expired.")
+    return user
+
+
+def require_admin(
+    user: Annotated[dict[str, Any], Depends(require_write_user)]
+) -> dict[str, Any]:
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Administrator access is required.")
+    return user
+
+
+CurrentUser = Annotated[dict[str, Any], Depends(require_user)]
+WriteUser = Annotated[dict[str, Any], Depends(require_write_user)]
+AdminUser = Annotated[dict[str, Any], Depends(require_admin)]
+
+
+def set_session_cookie(response: Response, raw_token: str) -> None:
+    response.set_cookie(
+        auth.cookie_name,
+        raw_token,
+        max_age=settings.session_ttl_hours * 3600,
+        httponly=True,
+        secure=settings.secure_cookies,
+        samesite="lax",
+        path="/",
+    )
+
+
+def auth_payload(session: dict[str, Any] | None = None) -> dict[str, Any]:
+    return {
+        "accounts_enabled": settings.accounts_enabled,
+        "setup_required": auth.setup_required(),
+        "user": session.get("user") if session else None,
+        "csrf_token": session.get("csrf_token") if session else None,
+    }
+
+
 @app.get("/api/health")
 def health() -> dict:
     settings.ensure_directories()
@@ -92,6 +222,9 @@ def health() -> dict:
         },
         "hf_token_configured": bool(settings.hf_token),
         "hf_endpoint": settings.hf_endpoint,
+        "accounts_enabled": settings.accounts_enabled,
+        "upload_chunk_bytes": settings.upload_chunk_mb * 1024**2,
+        "max_upload_size_bytes": settings.max_upload_size_gb * 1024**3,
     }
 
 
@@ -105,8 +238,96 @@ def os_access_writable(path: Path) -> bool:
         return False
 
 
+@app.get("/api/auth/status")
+def auth_status(request: Request) -> dict:
+    return auth_payload(session_for_request(request))
+
+
+@app.post("/api/auth/setup", status_code=201)
+def setup_account(payload: SetupRequest, response: Response) -> dict:
+    if not settings.accounts_enabled:
+        raise HTTPException(status_code=409, detail="Accounts are disabled.")
+    if not auth.setup_required():
+        raise HTTPException(status_code=409, detail="The owner account already exists.")
+    try:
+        user = auth.create_owner(payload.username, payload.display_name, payload.password)
+    except (ValueError, sqlite3.IntegrityError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    raw_token, csrf_token = auth.create_session(user["id"])
+    set_session_cookie(response, raw_token)
+    return auth_payload({"user": user, "csrf_token": csrf_token})
+
+
+@app.post("/api/auth/login")
+def login(payload: CredentialsRequest, request: Request, response: Response) -> dict:
+    if not settings.accounts_enabled:
+        raise HTTPException(status_code=409, detail="Accounts are disabled.")
+    client = request.client.host if request.client else "unknown"
+    try:
+        user = auth.authenticate(
+            payload.username, payload.password, f"{client}:{payload.username.lower()}"
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=429, detail=str(error)) from error
+    if not user:
+        raise HTTPException(status_code=401, detail="Username or password is incorrect.")
+    raw_token, csrf_token = auth.create_session(user["id"])
+    set_session_cookie(response, raw_token)
+    public_user = database.get_user(user["id"], include_secret=False)
+    return auth_payload({"user": public_user, "csrf_token": csrf_token})
+
+
+@app.post("/api/auth/logout")
+def logout(request: Request, response: Response, _: WriteUser) -> dict:
+    auth.revoke(request.cookies.get(auth.cookie_name))
+    response.delete_cookie(auth.cookie_name, path="/")
+    return {"status": "signed_out"}
+
+
+@app.get("/api/users")
+def list_users(user: CurrentUser) -> dict:
+    if user["role"] != "admin":
+        return {"items": [user]}
+    return {"items": database.list_users()}
+
+
+@app.post("/api/users", status_code=201)
+def create_user(payload: CreateUserRequest, _: AdminUser) -> dict:
+    try:
+        return auth.create_user(
+            payload.username, payload.display_name, payload.password, role="member"
+        )
+    except (ValueError, sqlite3.IntegrityError) as error:
+        detail = (
+            "That username is already in use."
+            if isinstance(error, sqlite3.IntegrityError)
+            else str(error)
+        )
+        raise HTTPException(status_code=400, detail=detail) from error
+
+
+@app.patch("/api/account/password")
+def change_password(
+    payload: PasswordChangeRequest, request: Request, user: WriteUser
+) -> dict:
+    raw_token = request.cookies.get(auth.cookie_name)
+    if not raw_token or not settings.accounts_enabled:
+        raise HTTPException(
+            status_code=409,
+            detail="Password changes are unavailable when accounts are disabled.",
+        )
+    try:
+        auth.change_password(
+            user["id"], payload.current_password, payload.new_password, raw_token
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return {"status": "password_changed"}
+
+
 @app.get("/api/hub/models")
 async def search_hub_models(
+    user: CurrentUser,
     search: Annotated[str, Query(max_length=200)] = "",
     sort: Literal["trending", "downloads", "updated", "likes"] = "trending",
     task: Annotated[str, Query(max_length=100)] = "",
@@ -127,20 +348,27 @@ async def search_hub_models(
             limit,
         )
     except Exception as error:
-        raise HTTPException(status_code=502, detail=f"Hugging Face Hub request failed: {error}") from error
+        raise HTTPException(
+            status_code=502, detail=f"Hugging Face Hub request failed: {error}"
+        ) from error
     local_ids = {model["repo_id"] for model in database.list_local_models()}
+    saved_ids = database.saved_repo_ids(user["id"])
     for item in items:
         item["local"] = item["id"] in local_ids
+        item["saved"] = item["id"] in saved_ids
     return {"items": items, "count": len(items)}
 
 
 @app.get("/api/hub/models/{repo_id:path}")
-async def hub_model(repo_id: str, revision: str = "main") -> dict:
+async def hub_model(repo_id: str, user: CurrentUser, revision: str = "main") -> dict:
     try:
         validated = validate_repo_id(repo_id)
         details = await run_in_threadpool(hub.model_details, validated, revision)
-        details["model_card"] = await run_in_threadpool(hub.read_model_card, validated, revision)
+        details["model_card"] = await run_in_threadpool(
+            hub.read_model_card, validated, revision
+        )
         details["local"] = database.get_local_model(validated) is not None
+        details["saved"] = validated in database.saved_repo_ids(user["id"])
         return details
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
@@ -148,48 +376,71 @@ async def hub_model(repo_id: str, revision: str = "main") -> dict:
         raise HTTPException(status_code=502, detail=f"Unable to load model: {error}") from error
 
 
+def can_access_download(download: dict[str, Any], user: dict[str, Any]) -> bool:
+    return (
+        download.get("user_id") == user["id"]
+        or (user["role"] == "admin" and download.get("user_id") is None)
+    )
+
+
 @app.get("/api/downloads")
-def list_downloads() -> dict:
-    items = database.list_downloads()
-    return {"items": items, "active": sum(item["status"] in {"queued", "preparing", "downloading"} for item in items)}
+def list_downloads(user: CurrentUser) -> dict:
+    items = database.list_downloads(
+        user_id=user["id"], include_unowned=user["role"] == "admin"
+    )
+    return {
+        "items": items,
+        "active": sum(
+            item["status"] in {"queued", "preparing", "downloading"} for item in items
+        ),
+    }
 
 
 @app.get("/api/downloads/{download_id}")
-def get_download(download_id: str) -> dict:
+def get_download(download_id: str, user: CurrentUser) -> dict:
     download = database.get_download(download_id)
-    if not download:
+    if not download or not can_access_download(download, user):
         raise HTTPException(status_code=404, detail="Download not found")
     return download
 
 
 @app.post("/api/downloads", status_code=202)
-def start_download(request: DownloadRequest) -> dict:
+def start_download(payload: DownloadRequest, user: WriteUser) -> dict:
+    if database.get_owned_repository(payload.repo_id):
+        raise HTTPException(
+            status_code=409,
+            detail="An account-owned repository already uses this storage path.",
+        )
     try:
         return downloads.queue(
-            request.repo_id,
-            request.revision,
-            request.allow_patterns,
-            request.ignore_patterns,
-            request.mode,
+            payload.repo_id,
+            payload.revision,
+            payload.allow_patterns,
+            payload.ignore_patterns,
+            payload.mode,
+            user_id=user["id"],
         )
     except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
+        raise HTTPException(status_code=409, detail=str(error)) from error
 
 
 @app.post("/api/downloads/{download_id}/cancel")
-def cancel_download(download_id: str) -> dict:
+def cancel_download(download_id: str, user: WriteUser) -> dict:
+    existing = database.get_download(download_id)
+    if not existing or not can_access_download(existing, user):
+        raise HTTPException(status_code=404, detail="Download not found")
     try:
         download = downloads.cancel(download_id)
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
-    if not download:
-        raise HTTPException(status_code=404, detail="Download not found")
     return download
 
 
 @app.get("/api/local-models")
-def local_models(query: Annotated[str, Query(max_length=200)] = "") -> dict:
-    items = database.list_local_models(query)
+def local_models(
+    user: CurrentUser, query: Annotated[str, Query(max_length=200)] = ""
+) -> dict:
+    items = database.list_visible_local_models(user["id"], query)
     return {
         "items": items,
         "count": len(items),
@@ -198,20 +449,239 @@ def local_models(query: Annotated[str, Query(max_length=200)] = "") -> dict:
 
 
 @app.post("/api/local-models/scan")
-async def scan_local_models() -> dict:
+async def scan_local_models(_: WriteUser) -> dict:
     return await run_in_threadpool(indexer.scan)
 
 
 @app.get("/api/local-models/{repo_id:path}")
-def local_model(repo_id: str) -> dict:
+def local_model(repo_id: str, user: CurrentUser) -> dict:
     try:
         validated = validate_repo_id(repo_id)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+    if not database.get_visible_local_model(user["id"], validated):
+        raise HTTPException(status_code=404, detail="Local model not found")
     result = indexer.files_for_model(validated)
     if not result:
         raise HTTPException(status_code=404, detail="Local model not found")
     return result
+
+
+@app.get("/api/collections")
+def list_collections(user: CurrentUser) -> dict:
+    return {"items": database.list_collections(user["id"])}
+
+
+@app.post("/api/collections", status_code=201)
+def create_collection(payload: CollectionRequest, user: WriteUser) -> dict:
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Collection name is required.")
+    timestamp = utc_iso()
+    try:
+        return database.create_collection(
+            {
+                "id": uuid.uuid4().hex,
+                "user_id": user["id"],
+                "name": name,
+                "description": payload.description.strip(),
+                "created_at": timestamp,
+                "updated_at": timestamp,
+            }
+        )
+    except sqlite3.IntegrityError as error:
+        raise HTTPException(
+            status_code=409, detail="You already have a collection with that name."
+        ) from error
+
+
+@app.delete("/api/collections/{collection_id}")
+def delete_collection(collection_id: str, user: WriteUser) -> dict:
+    if not database.delete_collection(collection_id, user["id"]):
+        raise HTTPException(status_code=404, detail="Collection not found.")
+    return {"status": "deleted"}
+
+
+def safe_saved_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    allowed = {
+        "author",
+        "pipeline_tag",
+        "library_name",
+        "license",
+        "parameter_count",
+        "last_modified",
+        "local",
+    }
+    result = {key: value for key, value in metadata.items() if key in allowed}
+    if len(json.dumps(result)) > 16_000:
+        raise ValueError("Saved model metadata is too large.")
+    return result
+
+
+@app.get("/api/saved-models")
+def list_saved_models(
+    user: CurrentUser,
+    query: Annotated[str, Query(max_length=200)] = "",
+    collection_id: Annotated[str, Query(max_length=100)] = "",
+) -> dict:
+    items = database.list_saved_models(user["id"], query, collection_id)
+    return {"items": items, "count": len(items)}
+
+
+@app.post("/api/saved-models")
+def save_model(payload: SavedModelRequest, user: WriteUser) -> dict:
+    timestamp = utc_iso()
+    existing = database.get_saved_model(user["id"], payload.repo_id)
+    try:
+        return database.save_model(
+            {
+                "id": existing["id"] if existing else uuid.uuid4().hex,
+                "user_id": user["id"],
+                "repo_id": payload.repo_id,
+                "note": payload.note.strip(),
+                "metadata_json": json.dumps(safe_saved_metadata(payload.metadata)),
+                "created_at": existing["created_at"] if existing else timestamp,
+                "updated_at": timestamp,
+            },
+            payload.collection_ids,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.delete("/api/saved-models/{repo_id:path}")
+def unsave_model(repo_id: str, user: WriteUser) -> dict:
+    try:
+        validated = validate_repo_id(repo_id)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    if not database.delete_saved_model(user["id"], validated):
+        raise HTTPException(status_code=404, detail="Saved model not found.")
+    return {"status": "removed"}
+
+
+@app.get("/api/uploads/repositories")
+def list_upload_repositories(user: CurrentUser) -> dict:
+    return {"items": database.list_owned_repositories(user["id"])}
+
+
+@app.post("/api/uploads/repositories", status_code=201)
+def create_upload_repository(payload: RepositoryRequest, user: WriteUser) -> dict:
+    try:
+        return uploads.create_repository(
+            user, payload.slug, payload.description, payload.visibility
+        )
+    except (ValueError, FileExistsError, sqlite3.IntegrityError) as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@app.patch("/api/uploads/repositories")
+def update_upload_repository(
+    payload: RepositoryUpdateRequest,
+    user: WriteUser,
+    repo_id: Annotated[str, Query(max_length=200)],
+) -> dict:
+    try:
+        return uploads.update_repository(
+            validate_repo_id(repo_id),
+            user["id"],
+            payload.description,
+            payload.visibility,
+        )
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/uploads/repositories/files/status")
+def upload_file_status(
+    user: CurrentUser,
+    repo_id: Annotated[str, Query(max_length=200)],
+    path: Annotated[str, Query(max_length=500)],
+) -> dict:
+    try:
+        return uploads.file_status(repo_id, user["id"], path)
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.put("/api/uploads/repositories/files")
+async def upload_file_chunk(
+    request: Request,
+    user: WriteUser,
+    repo_id: Annotated[str, Query(max_length=200)],
+    path: Annotated[str, Query(max_length=500)],
+) -> dict:
+    try:
+        offset = int(request.headers.get("Upload-Offset", "-1"))
+        total = int(request.headers.get("Upload-Length", "-1"))
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail="Upload headers are invalid.") from error
+    try:
+        content_length = int(request.headers.get("Content-Length", "0") or 0)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail="Content length is invalid.") from error
+    if content_length > settings.upload_chunk_mb * 1024**2:
+        raise HTTPException(status_code=413, detail="Upload chunk is too large.")
+    chunks: list[bytes] = []
+    received = 0
+    limit = settings.upload_chunk_mb * 1024**2
+    async for chunk in request.stream():
+        received += len(chunk)
+        if received > limit:
+            raise HTTPException(status_code=413, detail="Upload chunk is too large.")
+        chunks.append(chunk)
+    payload = b"".join(chunks)
+    try:
+        return await run_in_threadpool(
+            uploads.upload_chunk,
+            repo_id,
+            user["id"],
+            path,
+            offset,
+            total,
+            payload,
+        )
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except FileExistsError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except RuntimeError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except (ValueError, OSError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/uploads/repositories/finalize")
+async def finalize_upload_repository(
+    user: WriteUser, repo_id: Annotated[str, Query(max_length=200)]
+) -> dict:
+    try:
+        return await run_in_threadpool(uploads.finalize, repo_id, user["id"])
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@app.delete("/api/uploads/repositories")
+async def delete_upload_repository(
+    payload: DeleteRepositoryRequest,
+    user: WriteUser,
+    repo_id: Annotated[str, Query(max_length=200)],
+) -> dict:
+    try:
+        await run_in_threadpool(
+            uploads.delete_repository, repo_id, user["id"], payload.confirmation
+        )
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return {"status": "deleted"}
 
 
 app_directory = Path(__file__).resolve().parent

@@ -55,10 +55,13 @@ class DownloadManager:
         allow_patterns: list[str] | None = None,
         ignore_patterns: list[str] | None = None,
         mode: str = "full",
+        user_id: str | None = None,
     ) -> dict[str, Any]:
         validated = validate_repo_id(repo_id)
         active = self.database.find_active_download(validated)
         if active:
+            if active.get("user_id") != user_id:
+                raise ValueError("This model is already being downloaded by another account.")
             return active
         target = repository_path(validated)
         created = now_iso()
@@ -83,6 +86,7 @@ class DownloadManager:
             "created_at": created,
             "updated_at": created,
             "completed_at": None,
+            "user_id": user_id,
         }
         download = self.database.create_download(record)
         self._submit(download["id"])
