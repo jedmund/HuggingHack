@@ -98,7 +98,7 @@ export function AuthScreen({
             <input
               value={displayName}
               onChange={(event) => setDisplayName(event.target.value)}
-              placeholder="Thomas"
+              placeholder="Your name"
               maxLength={80}
               autoComplete="name"
             />
