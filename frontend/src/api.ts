@@ -3,15 +3,19 @@ import type {
   Collection,
   DownloadJob,
   DownloadMode,
+  DownloadSchedule,
   Health,
   HubModel,
   HubModelDetails,
+  HardwareRig,
+  HardwareRigInput,
   LocalModel,
   LocalModelDetails,
   OwnedRepository,
   RuntimeJob,
   RuntimeTarget,
   SavedModel,
+  SelectionPath,
   User,
 } from './types'
 
@@ -62,7 +66,7 @@ export const api = {
       body: JSON.stringify(payload),
     }).then(applyAuth),
   logout: () =>
-    request<{ status: string }>('/api/auth/logout', { method: 'POST' }).finally(() => {
+    request<{ status: string; logout_url: string | null }>('/api/auth/logout', { method: 'POST' }).finally(() => {
       csrfToken = null
     }),
   users: () => request<{ items: User[] }>('/api/users'),
@@ -73,11 +77,28 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify(payload),
     }),
+  hardwareRigs: () => request<{ items: HardwareRig[] }>('/api/hardware/rigs'),
+  createHardwareRig: (payload: HardwareRigInput) =>
+    request<HardwareRig>('/api/hardware/rigs', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  updateHardwareRig: (rigId: string, payload: HardwareRigInput) =>
+    request<HardwareRig>(`/api/hardware/rigs/${encodeURIComponent(rigId)}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+  deleteHardwareRig: (rigId: string) =>
+    request<{ status: string }>(`/api/hardware/rigs/${encodeURIComponent(rigId)}`, {
+      method: 'DELETE',
+    }),
   health: () => request<Health>('/api/health'),
   searchModels: (params: URLSearchParams) =>
     request<{ items: HubModel[]; count: number }>(`/api/hub/models?${params.toString()}`),
-  modelDetails: (repoId: string) =>
-    request<HubModelDetails>(`/api/hub/models/${repoPath(repoId)}`),
+  modelDetails: (repoId: string, revision = 'main') =>
+    request<HubModelDetails>(
+      `/api/hub/models/${repoPath(repoId)}?revision=${encodeURIComponent(revision)}`,
+    ),
   downloads: () => request<{ items: DownloadJob[]; active: number }>('/api/downloads'),
   startDownload: (payload: {
     repo_id: string
@@ -85,6 +106,7 @@ export const api = {
     allow_patterns?: string[]
     ignore_patterns?: string[]
     mode?: DownloadMode
+    selection?: { paths: SelectionPath[]; include_metadata: boolean }
   }) =>
     request<DownloadJob>('/api/downloads', {
       method: 'POST',
@@ -93,6 +115,24 @@ export const api = {
   cancelDownload: (downloadId: string) =>
     request<DownloadJob>(`/api/downloads/${encodeURIComponent(downloadId)}/cancel`, {
       method: 'POST',
+    }),
+  pauseDownload: (downloadId: string) =>
+    request<DownloadJob>(`/api/downloads/${encodeURIComponent(downloadId)}/pause`, {
+      method: 'POST',
+    }),
+  resumeDownload: (downloadId: string) =>
+    request<DownloadJob>(`/api/downloads/${encodeURIComponent(downloadId)}/resume`, {
+      method: 'POST',
+    }),
+  cleanupDownload: (downloadId: string) =>
+    request<DownloadJob>(`/api/downloads/${encodeURIComponent(downloadId)}/data`, {
+      method: 'DELETE',
+    }),
+  downloadSettings: () => request<DownloadSchedule>('/api/download-settings'),
+  updateDownloadSettings: (payload: Omit<DownloadSchedule, 'window_open' | 'updated_by' | 'updated_at'>) =>
+    request<DownloadSchedule>('/api/download-settings', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
     }),
   localModels: (query = '') =>
     request<{ items: LocalModel[]; count: number; total_bytes: number }>(

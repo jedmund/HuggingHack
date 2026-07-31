@@ -46,12 +46,14 @@
 - Familiar Hub-style model catalog with visual, metadata-driven model cards plus task, format, local-app, parameter, and sort filters
 - Live Hugging Face metadata, repository file lists, richly rendered model cards, gated status, likes, and download counts
 - On-demand GGUF metadata and tensor inspection with shard position, names, shapes, data types, and parameter totals
-- Full repository, SafeTensors, single-GGUF, metadata-only, and custom-pattern download modes
-- Background downloads with revision selection, byte progress, speed, cancellation, and history
+- Full repository, SafeTensors, GGUF, metadata-only, file/folder, weight-set, and custom-pattern download modes
+- Background downloads with revision pinning, byte progress, speed, pause/resume, retained-data cleanup, and history
+- Administrator-defined weekly download windows in the browser's IANA timezone
 - Restart recovery: interrupted jobs resume through Hugging Face's local-dir metadata
 - Automatic local-library indexing with model size, file count, config metadata, and unsafe serialization warnings
-- Built-in local accounts with a first-run owner, HTTP-only sessions, and administrator-created member accounts
+- Built-in local accounts or Pocket ID OIDC with per-user provisioning and group-based roles
 - Per-account saved models, private notes, and project or rig collections
+- Per-account **My Hardware** rigs with GGUF/MLX weight-fit estimates and 20% runtime headroom
 - Private or locally shared user repositories with resumable, chunked model-folder uploads
 - Optional S3-compatible durable storage with a local working cache, remote browsing, restore, and cache eviction
 - Network runtime jobs: transfer models to Ollama or switch a remote vLLM rig through an authenticated manager
@@ -156,10 +158,10 @@ Switching `DATABASE_URL` does not copy an existing SQLite installation into Post
 
 ## Accounts, saved models, and uploads
 
-Accounts are local to this HuggingHack installation—there is no hosted identity service and
-no account data leaves the server. Each member gets a separate saved-model library, private
-notes, collections, and download history. Members can rotate their own password from
-**Settings**; doing so revokes their other active sessions.
+Local accounts stay inside this HuggingHack installation. Each member gets a separate
+saved-model library, private notes, collections, and download history. Local members can rotate
+their own password from **Settings**; doing so revokes their other active sessions. Pocket ID
+can instead be the only sign-in method, as described below.
 
 Use the heart on a Hub model to save it without downloading. The **Saved** workspace can
 organize those models into multiple collections, such as a project shortlist or a target rig.
@@ -181,9 +183,47 @@ Interrupted uploads keep their progress and resume from the server's confirmed o
 Uploaded repositories are private by default; their owner can share them with every local
 account. Model files stay in the model mount rather than in the metadata database.
 
-To preserve the original trusted-LAN behavior, set `ACCOUNTS_ENABLED=false`. This creates a
-single local compatibility identity and skips sign-in. Do not use that mode on an untrusted
-network.
+To preserve the original trusted-LAN behavior, set `AUTH_MODE=disabled`. This creates a single
+local compatibility identity and skips sign-in. `ACCOUNTS_ENABLED=false` remains supported when
+`AUTH_MODE` is blank. Do not use disabled mode on an untrusted network.
+
+## Use Pocket ID for sign-in
+
+Pocket ID can authenticate every HuggingHack user through one confidential OIDC client. Local
+username/password forms are hidden while OIDC is enabled, and each Pocket ID subject gets its
+own saved models, collections, uploads, and history.
+
+1. In Pocket ID, create an OIDC client for HuggingHack and allow the user groups that should be
+   able to sign in.
+2. Register `https://models.example.com/api/auth/oidc/callback` as the callback URL and
+   `https://models.example.com/` as the logout callback, replacing the hostname with your
+   public HuggingHack URL.
+3. Configure `.env` and restart HuggingHack:
+
+```dotenv
+AUTH_MODE=oidc
+APP_BASE_URL=https://models.example.com
+SECURE_COOKIES=true
+OIDC_ISSUER=https://id.example.com
+OIDC_CLIENT_ID=replace-with-pocket-id-client-id
+OIDC_CLIENT_SECRET=replace-with-pocket-id-client-secret
+OIDC_SCOPES=openid,profile,email,groups
+OIDC_ALLOWED_GROUPS=model-users,model-admins
+OIDC_ADMIN_GROUPS=model-admins
+OIDC_SESSION_TTL_HOURS=12
+```
+
+`OIDC_ALLOWED_GROUPS` is an optional second access check inside HuggingHack; Pocket ID's client
+group restriction should remain the primary gate. `OIDC_ADMIN_GROUPS` maps matching group names
+to the HuggingHack administrator role on every login. With no admin-group mapping, existing
+linked roles are preserved and newly provisioned users are members.
+
+HuggingHack uses Authorization Code flow with a client secret, PKCE S256, nonce validation,
+one-time server-side state, discovery/JWKS signature verification, and exact issuer and audience
+checks. If a Pocket ID preferred username exactly matches an unlinked local username after
+normalization, the identity is linked to that account so its existing data is retained. Later
+users with the same preferred username receive a unique suffix. Signing out revokes the local
+session and continues through Pocket ID's end-session endpoint when advertised.
 
 ## Choose the model folder
 
@@ -411,13 +451,19 @@ The token is read only by the backend container. It is never returned by the API
 
 ## File filtering
 
-The model drawer offers five download modes:
+The model drawer offers six download modes plus detected weight-set shortcuts:
 
 - **Full repository** downloads every file in the selected revision.
 - **SafeTensors** selects safe weights plus configuration and tokenizer files.
 - **One GGUF** lets you choose a specific quantization from the repository file list.
+- **Files & folders** selects any combination of repository files and complete folders. Support
+  metadata is included by default and can be switched off.
 - **Metadata only** fetches configuration, tokenizer, and documentation files without weights.
 - **Custom** accepts comma-separated include and exclude patterns.
+
+When a repository publishes a sharded GGUF quantization or an MLX weight folder, the
+**Weight sets** list selects the complete set in one click. For example, choosing
+`UD-Q8_K_XL` includes all of that quantization's shards without selecting unrelated weights.
 
 Custom pattern examples:
 
@@ -426,6 +472,29 @@ Custom pattern examples:
 - Exclude legacy PyTorch weights: `*.bin, *.pt, *.pth`
 
 Patterns use Hugging Face's official `snapshot_download` filtering.
+
+## My Hardware compatibility
+
+Open **Settings → My hardware** to add named machines and any combination of:
+
+- CPU/system RAM
+- one or more GPUs and their VRAM
+- Apple silicon and its unified memory
+
+The first rig becomes primary, and any rig can be marked primary later. Hardware profiles are
+private to the signed-in account. Open a model with detected GGUF quantizations or MLX weight
+folders to see a fit summary beside each complete weight set; selecting one shows the result for
+every saved rig.
+
+HuggingHack reserves 20% above the published weight-file size for runtime overhead. **Fits**
+means that reserve is available, **tight** means the raw weights fit without the full reserve,
+and **does not fit** means the weight bytes exceed the applicable memory. GGUF checks Apple
+unified memory, aggregate GPU VRAM, and system RAM; MLX checks Apple unified memory. Missing or
+inapplicable component data is reported as unknown.
+
+These are planning estimates, not runtime guarantees. Context length, KV cache, framework,
+offloading strategy, multimodal projectors, and other processes can materially change actual
+memory use.
 
 ## GGUF metadata and tensors
 
@@ -437,9 +506,18 @@ HuggingHack reads only bounded byte ranges from the selected file, caches the re
 browser session, and leaves every other shard untouched until you select it. Private and gated
 repositories use the backend's `HF_TOKEN`; the token is never exposed to the browser.
 
-## Cancel and resume
+## Pause, resume, and download windows
 
-Active downloads have a **Cancel download** action. Cancellation stops the isolated download worker, keeps already transferred files and Hugging Face local-directory metadata, and marks the job as cancelled in history. Starting the same repository again can reuse those partial files instead of discarding the completed work.
+Downloads first write to a hidden staging area and only replace the managed model when the
+selected revision is complete. **Pause** stops an isolated worker while keeping the transferred
+files and Hugging Face local-directory metadata. **Resume** continues that job; **Stop** retains
+the same partial data in case it is useful later. A stopped, paused, or failed job exposes
+**Delete data**, which removes only its staging files and keeps the history record.
+
+Administrators can enable one weekly download window in **Settings**, choose its weekdays and
+start/end times, and capture the current browser's IANA timezone. New jobs wait while the window
+is closed. Active transfers pause at closing and resume at the next opening; overnight ranges
+are supported.
 
 ## Manually added models
 
@@ -455,7 +533,8 @@ Manually copied models are indexed but never modified.
 - HuggingHack downloads files but does not execute repository code, import model modules, or deserialize weights.
 - Model cards are rendered as sanitized Markdown with safe HTML, readable code, tables, lists, and math; embedded scripts, forms, and frames are discarded.
 - Pickle-compatible formats can execute code when loaded by other applications. Prefer SafeTensors or GGUF and only load models from publishers you trust.
-- Passwords are salted and hashed with `scrypt`; sessions use hashed random tokens in HTTP-only, SameSite cookies and state-changing requests require a per-session CSRF token.
+- Local passwords are salted and hashed with `scrypt`; sessions use hashed random tokens in HTTP-only, SameSite cookies and state-changing requests require a per-session CSRF token.
+- OIDC uses authorization-code and PKCE protections, validates signed ID-token claims, stores login state server-side, and never sends the Pocket ID client secret to the browser.
 - Built-in accounts protect application data, but public exposure still requires HTTPS. Put HuggingHack behind a TLS reverse proxy such as Caddy, Traefik, or Nginx Proxy Manager and set `SECURE_COOKIES=true`.
 - Upload paths are confined to repositories owned by the signed-in account. Repository deletion verifies ownership and requires the exact repository name.
 - Runtime dispatch is administrator-only in the UI. Optional bearer access is limited to runtime endpoints; use long random tokens and firewall Ollama and the vLLM agent to trusted LAN clients.

@@ -27,10 +27,12 @@ export interface Health {
   hf_token_configured: boolean
   hf_endpoint: string
   accounts_enabled: boolean
+  auth_mode: 'local' | 'oidc' | 'disabled'
   upload_chunk_bytes: number
   max_upload_size_bytes: number
   runtime_target_count: number
   runtime_api_token_configured: boolean
+  download_window: DownloadSchedule
 }
 
 export interface User {
@@ -43,6 +45,9 @@ export interface User {
 
 export interface AuthStatus {
   accounts_enabled: boolean
+  auth_mode: 'local' | 'oidc' | 'disabled'
+  oidc_provider_name: string | null
+  oidc_login_url: string | null
   setup_required: boolean
   user: User | null
   csrf_token: string | null
@@ -82,15 +87,87 @@ export interface HubModelDetails extends HubModel {
   security_status?: unknown
   source_url: string
   model_card?: string | null
+  weight_groups: WeightGroup[]
+  hardware_rig_count: number
 }
 
-export type DownloadMode = 'full' | 'safetensors' | 'gguf' | 'metadata' | 'custom'
+export type HardwareComponentKind = 'cpu' | 'gpu' | 'apple_silicon'
+
+export interface HardwareComponent {
+  id: string
+  rig_id: string
+  kind: HardwareComponentKind
+  vendor: string
+  model: string
+  memory_bytes: number
+  quantity: number
+  created_at: string
+  updated_at: string
+}
+
+export interface HardwareRig {
+  id: string
+  user_id: string
+  name: string
+  notes: string
+  is_primary: boolean
+  components: HardwareComponent[]
+  created_at: string
+  updated_at: string
+}
+
+export interface HardwareRigInput {
+  name: string
+  notes: string
+  is_primary: boolean
+  components: Array<Pick<HardwareComponent, 'kind' | 'vendor' | 'model' | 'memory_bytes' | 'quantity'>>
+}
+
+export interface HardwareEvaluation {
+  rig_id: string
+  rig_name: string
+  is_primary: boolean
+  status: 'fits' | 'tight' | 'does_not_fit' | 'unknown'
+  target: string | null
+  weight_bytes: number
+  required_bytes: number
+  available_bytes: number
+  headroom_percent: number
+}
+
+export interface SelectionPath {
+  path: string
+  kind: 'file' | 'folder'
+}
+
+export interface WeightGroup {
+  id: string
+  label: string
+  format: 'gguf' | 'mlx'
+  files: string[]
+  total_bytes: number
+  selection: SelectionPath[]
+  compatibility: HardwareEvaluation[]
+}
+
+export type DownloadMode = 'full' | 'safetensors' | 'gguf' | 'metadata' | 'custom' | 'selection'
+
+export interface DownloadSchedule {
+  enabled: boolean
+  timezone: string
+  weekdays: number[]
+  start_time: string
+  end_time: string
+  window_open: boolean
+  updated_by?: string | null
+  updated_at?: string | null
+}
 
 export interface DownloadJob {
   id: string
   repo_id: string
   revision: string
-  status: 'queued' | 'preparing' | 'downloading' | 'complete' | 'failed' | 'cancelled'
+  status: 'queued' | 'scheduled' | 'preparing' | 'downloading' | 'finalizing' | 'paused' | 'complete' | 'failed' | 'cancelled'
   total_bytes: number
   downloaded_bytes: number
   progress: number
@@ -101,11 +178,19 @@ export interface DownloadJob {
     allow_patterns?: string[]
     ignore_patterns?: string[]
     mode?: DownloadMode
+    selection?: {
+      paths: SelectionPath[]
+      include_metadata: boolean
+    } | null
   }
   metadata: Record<string, unknown>
   created_at: string
   updated_at: string
   completed_at?: string | null
+  resolved_revision?: string | null
+  staging_path?: string | null
+  pause_reason?: 'user' | 'window' | null
+  cleaned_at?: string | null
 }
 
 export interface LocalModel {

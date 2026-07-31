@@ -26,6 +26,7 @@ import {
   ExternalLink,
   File,
   FileJson,
+  Folder,
   HardDrive,
   LoaderCircle,
   LockKeyhole,
@@ -50,6 +51,8 @@ import type {
   LocalModelDetails,
   RuntimeJob,
   RuntimeTarget,
+  SelectionPath,
+  WeightGroup,
 } from '../types'
 import { formatBytes, formatNumber, relativeTime, taskLabel } from '../utils'
 
@@ -83,6 +86,7 @@ const downloadModes: Array<{
   { id: 'full', label: 'Full repository', description: 'Every file in this revision', icon: Archive },
   { id: 'safetensors', label: 'SafeTensors', description: 'Safe weights plus runtime files', icon: ShieldCheck },
   { id: 'gguf', label: 'One GGUF', description: 'Choose one quantization file', icon: Boxes },
+  { id: 'selection', label: 'Files & folders', description: 'Choose weight sets, folders, or files', icon: Folder },
   { id: 'metadata', label: 'Metadata only', description: 'Config, tokenizer, card, and license', icon: FileJson },
   { id: 'custom', label: 'Custom', description: 'Use include and exclude patterns', icon: File },
 ]
@@ -96,6 +100,124 @@ function isMetadataFile(file: HubFile): boolean {
     name.startsWith('license') ||
     name.startsWith('tokenizer')
   )
+}
+
+const fitRank = { unknown: 0, does_not_fit: 1, tight: 2, fits: 3 }
+
+function bestHardwareFit(group: WeightGroup) {
+  return [...group.compatibility].sort(
+    (left, right) => fitRank[right.status] - fitRank[left.status]
+      || Number(right.is_primary) - Number(left.is_primary)
+      || right.available_bytes - left.available_bytes,
+  )[0]
+}
+
+function fitLabel(status: WeightGroup['compatibility'][number]['status']): string {
+  if (status === 'fits') return 'Fits with 20% headroom'
+  if (status === 'tight') return 'Weights fit; runtime headroom is tight'
+  if (status === 'does_not_fit') return 'Does not fit available memory'
+  return 'Compatibility unknown'
+}
+
+function HardwareFitSummary({ group }: { group: WeightGroup }) {
+  const best = bestHardwareFit(group)
+  if (!best) return null
+  return (
+    <small className={`hardware-fit-summary ${best.status}`}>
+      {fitLabel(best.status)} · {best.rig_name}
+    </small>
+  )
+}
+
+interface FileTreeNode {
+  name: string
+  path: string
+  kind: 'file' | 'folder'
+  children: FileTreeNode[]
+}
+
+function buildFileTree(files: HubFile[]): FileTreeNode[] {
+  const root: FileTreeNode = { name: '', path: '', kind: 'folder', children: [] }
+  for (const file of files) {
+    const parts = file.path.split('/').filter(Boolean)
+    let parent = root
+    parts.forEach((part, index) => {
+      const path = parts.slice(0, index + 1).join('/')
+      const kind = index === parts.length - 1 ? 'file' : 'folder'
+      let node = parent.children.find((candidate) => candidate.name === part && candidate.kind === kind)
+      if (!node) {
+        node = { name: part, path, kind, children: [] }
+        parent.children.push(node)
+      }
+      parent = node
+    })
+  }
+  const sort = (nodes: FileTreeNode[]) => {
+    nodes.sort((a, b) => (a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === 'folder' ? -1 : 1))
+    nodes.forEach((node) => sort(node.children))
+  }
+  sort(root.children)
+  return root.children
+}
+
+function descendantFiles(node: FileTreeNode): string[] {
+  if (node.kind === 'file') return [node.path]
+  return node.children.flatMap(descendantFiles)
+}
+
+function compactSelection(nodes: FileTreeNode[], selected: Set<string>): SelectionPath[] {
+  const output: SelectionPath[] = []
+  for (const node of nodes) {
+    const descendants = descendantFiles(node)
+    if (node.kind === 'folder' && descendants.length > 0 && descendants.every((path) => selected.has(path))) {
+      output.push({ path: node.path, kind: 'folder' })
+    } else if (node.kind === 'folder') {
+      output.push(...compactSelection(node.children, selected))
+    } else if (selected.has(node.path)) {
+      output.push({ path: node.path, kind: 'file' })
+    }
+  }
+  return output
+}
+
+function FileTree({
+  nodes,
+  selected,
+  onToggle,
+  depth = 0,
+}: {
+  nodes: FileTreeNode[]
+  selected: Set<string>
+  onToggle: (node: FileTreeNode) => void
+  depth?: number
+}) {
+  return nodes.map((node) => {
+    const descendants = descendantFiles(node)
+    const selectedCount = descendants.filter((path) => selected.has(path)).length
+    const checked = descendants.length > 0 && selectedCount === descendants.length
+    const mixed = selectedCount > 0 && !checked
+    return (
+      <div key={`${node.kind}:${node.path}`} className="selection-tree-node">
+        <button
+          type="button"
+          className="selection-tree-row"
+          style={{ paddingLeft: `${10 + depth * 18}px` }}
+          onClick={() => onToggle(node)}
+          role="checkbox"
+          aria-checked={mixed ? 'mixed' : checked}
+        >
+          <span className={`tree-check ${checked ? 'checked' : ''} ${mixed ? 'mixed' : ''}`}>
+            {(checked || mixed) && <Check size={11} />}
+          </span>
+          {node.kind === 'folder' ? <Folder size={14} /> : <File size={14} />}
+          <span title={node.path}>{node.name}</span>
+        </button>
+        {node.children.length > 0 && (
+          <FileTree nodes={node.children} selected={selected} onToggle={onToggle} depth={depth + 1} />
+        )}
+      </div>
+    )
+  })
 }
 
 function childText(children: ReactNode): string {
@@ -230,11 +352,13 @@ export function ModelDrawer({ repoId, onClose, onQueued }: ModelDrawerProps) {
   const [excludeUnsafe, setExcludeUnsafe] = useState(false)
   const [include, setInclude] = useState('')
   const [exclude, setExclude] = useState('')
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set())
+  const [includeMetadata, setIncludeMetadata] = useState(true)
+  const [selectedWeightGroupId, setSelectedWeightGroupId] = useState('')
   const [queuing, setQueuing] = useState(false)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
-    let ignore = false
     setModel(null)
     setError('')
     setTab('card')
@@ -244,8 +368,15 @@ export function ModelDrawer({ repoId, onClose, onQueued }: ModelDrawerProps) {
     setExcludeUnsafe(false)
     setInclude('')
     setExclude('')
+    setSelectedPaths(new Set())
+    setIncludeMetadata(true)
+    setSelectedWeightGroupId('')
+  }, [repoId])
+
+  useEffect(() => {
+    let ignore = false
     if (!repoId) return
-    api.modelDetails(repoId)
+    const timer = window.setTimeout(() => api.modelDetails(repoId, revision)
       .then((payload) => {
         if (ignore) return
         setModel(payload)
@@ -253,11 +384,12 @@ export function ModelDrawer({ repoId, onClose, onQueued }: ModelDrawerProps) {
       })
       .catch((reason) => {
         if (!ignore) setError(reason.message)
-      })
+      }), 250)
     return () => {
       ignore = true
+      window.clearTimeout(timer)
     }
-  }, [repoId])
+  }, [repoId, revision])
 
   useEffect(() => {
     if (!repoId) return
@@ -283,6 +415,9 @@ export function ModelDrawer({ repoId, onClose, onQueued }: ModelDrawerProps) {
     [model],
   )
 
+  const fileTree = useMemo(() => buildFileTree(model?.files || []), [model])
+  const selectedWeightGroup = model?.weight_groups.find((group) => group.id === selectedWeightGroupId)
+
   const selectedFiles = useMemo(() => {
     if (!model) return []
     if (mode === 'full') return model.files
@@ -291,8 +426,13 @@ export function ModelDrawer({ repoId, onClose, onQueued }: ModelDrawerProps) {
     }
     if (mode === 'gguf') return model.files.filter((file) => file.path === ggufPath || isMetadataFile(file))
     if (mode === 'metadata') return model.files.filter(isMetadataFile)
+    if (mode === 'selection') {
+      return model.files.filter(
+        (file) => selectedPaths.has(file.path) || (includeMetadata && isMetadataFile(file)),
+      )
+    }
     return []
-  }, [ggufPath, mode, model])
+  }, [ggufPath, includeMetadata, mode, model, selectedPaths])
 
   const estimatedBytes = selectedFiles.reduce((total, file) => total + (file.size || 0), 0)
 
@@ -321,6 +461,9 @@ export function ModelDrawer({ repoId, onClose, onQueued }: ModelDrawerProps) {
         allow_patterns: allowPatterns,
         ignore_patterns: ignorePatterns,
         mode,
+        selection: mode === 'selection'
+          ? { paths: compactSelection(fileTree, selectedPaths), include_metadata: includeMetadata }
+          : undefined,
       })
       onQueued(repoId)
     } catch (reason) {
@@ -328,6 +471,22 @@ export function ModelDrawer({ repoId, onClose, onQueued }: ModelDrawerProps) {
     } finally {
       setQueuing(false)
     }
+  }
+
+  function toggleSelection(node: FileTreeNode) {
+    const descendants = descendantFiles(node)
+    setSelectedPaths((current) => {
+      const next = new Set(current)
+      const allSelected = descendants.every((path) => next.has(path))
+      descendants.forEach((path) => allSelected ? next.delete(path) : next.add(path))
+      return next
+    })
+  }
+
+  function chooseWeightGroup(group: WeightGroup) {
+    setSelectedPaths(new Set(group.files))
+    setSelectedWeightGroupId(group.id)
+    setMode('selection')
   }
 
   return (
@@ -401,6 +560,50 @@ export function ModelDrawer({ repoId, onClose, onQueued }: ModelDrawerProps) {
                 Revision
                 <input value={revision} onChange={(event) => setRevision(event.target.value)} />
               </label>
+              {model.weight_groups.length > 0 && (
+                <div className="weight-set-picker">
+                  <div>
+                    <strong>Weight sets</strong>
+                    <small>Select every shard in a quantization or MLX folder.</small>
+                  </div>
+                  <div className="weight-set-list">
+                    {model.weight_groups.map((group) => (
+                      <button
+                        type="button"
+                        key={group.id}
+                        className={
+                          group.files.length > 0 && group.files.every((path) => selectedPaths.has(path))
+                            ? 'selected'
+                            : ''
+                        }
+                        onClick={() => chooseWeightGroup(group)}
+                      >
+                        <Boxes size={14} />
+                        <span>
+                          <strong>{group.label}</strong>
+                          <small>{group.files.length} file{group.files.length === 1 ? '' : 's'}</small>
+                          <HardwareFitSummary group={group} />
+                        </span>
+                        <em>{formatBytes(group.total_bytes)}</em>
+                      </button>
+                    ))}
+                  </div>
+                  {model.hardware_rig_count === 0 && (
+                    <p className="hardware-fit-empty">Add a rig in <a href="/#/settings">My hardware</a> to check whether each weight set fits.</p>
+                  )}
+                  {selectedWeightGroup && selectedWeightGroup.compatibility.length > 0 && (
+                    <div className="hardware-fit-panel">
+                      <strong>{selectedWeightGroup.label} on my hardware</strong>
+                      {selectedWeightGroup.compatibility.map((evaluation) => (
+                        <div key={evaluation.rig_id} className={`hardware-fit-row ${evaluation.status}`}>
+                          <span><strong>{evaluation.rig_name}</strong><small>{fitLabel(evaluation.status)}{evaluation.target ? ` · ${evaluation.target}` : ''}</small></span>
+                          <em>{formatBytes(evaluation.required_bytes)} needed / {formatBytes(evaluation.available_bytes)}</em>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="download-mode-grid" role="radiogroup" aria-label="Download contents">
                 {downloadModes.map(({ id, label, description, icon: Icon }) => {
                   const unavailable = id === 'gguf' && ggufFiles.length === 0
@@ -455,6 +658,28 @@ export function ModelDrawer({ repoId, onClose, onQueued }: ModelDrawerProps) {
                   </label>
                 </div>
               )}
+              {mode === 'selection' && (
+                <div className="selection-browser">
+                  <div className="selection-browser-heading">
+                    <span><strong>Repository tree</strong><small>{selectedPaths.size} explicitly selected</small></span>
+                    <button type="button" className="text-button" onClick={() => setSelectedPaths(new Set())}>Clear</button>
+                  </div>
+                  <div className="selection-tree">
+                    <FileTree nodes={fileTree} selected={selectedPaths} onToggle={toggleSelection} />
+                  </div>
+                  <label className="safety-toggle compact">
+                    <input
+                      type="checkbox"
+                      checked={includeMetadata}
+                      onChange={(event) => setIncludeMetadata(event.target.checked)}
+                    />
+                    <span>
+                      <strong>Include support metadata</strong>
+                      <small>Add config, tokenizer, model card, and license files.</small>
+                    </span>
+                  </label>
+                </div>
+              )}
               <label className="safety-toggle">
                 <input
                   type="checkbox"
@@ -484,7 +709,12 @@ export function ModelDrawer({ repoId, onClose, onQueued }: ModelDrawerProps) {
                   from publishers you trust.
                 </div>
               )}
-              <button type="button" className="download-button wide" onClick={queue} disabled={queuing}>
+              <button
+                type="button"
+                className="download-button wide"
+                onClick={queue}
+                disabled={queuing || (mode === 'selection' && selectedPaths.size === 0)}
+              >
                 {queuing ? <LoaderCircle size={16} className="spin" /> : <Download size={16} />}
                 {queuing ? 'Adding to queue…' : model.local ? 'Update local copy' : 'Start download'}
               </button>
