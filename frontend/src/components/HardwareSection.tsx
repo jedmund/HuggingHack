@@ -11,16 +11,21 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { api } from '../api'
+import { matchingCatalogItem } from '../hardwareCatalog'
 import type {
+  HardwareCatalogItem,
   HardwareComponentKind,
   HardwareRig,
   HardwareRigInput,
 } from '../types'
 import { formatBytes } from '../utils'
+import { HardwareCatalogPicker } from './HardwareCatalogPicker'
 
 type ToastHandler = (message: string, tone?: 'success' | 'error') => void
 
 interface DraftComponent {
+  source: 'catalog' | 'custom'
+  catalog_id: string
   kind: HardwareComponentKind
   vendor: string
   model: string
@@ -46,19 +51,33 @@ function memoryValue(bytes: number): string {
   return String(Math.round((bytes / GIB) * 100) / 100)
 }
 
-function draftFor(rig?: HardwareRig, first = false): DraftRig {
+function draftFor(
+  rig?: HardwareRig,
+  first = false,
+  catalog: HardwareCatalogItem[] = [],
+): DraftRig {
   return rig
     ? {
         name: rig.name,
         notes: rig.notes,
         is_primary: rig.is_primary,
-        components: rig.components.map((component) => ({
-          kind: component.kind,
-          vendor: component.vendor,
-          model: component.model,
-          memory_gb: memoryValue(component.memory_bytes),
-          quantity: component.quantity,
-        })),
+        components: rig.components.map((component) => {
+          const match = matchingCatalogItem(catalog, component)
+          const memoryGb = Number(memoryValue(component.memory_bytes))
+          const catalogMemory = Boolean(
+            match &&
+            (match.memory_gb.length === 0 || match.memory_gb.includes(memoryGb)),
+          )
+          return {
+            source: catalogMemory ? 'catalog' : 'custom',
+            catalog_id: catalogMemory ? match?.id || '' : '',
+            kind: component.kind,
+            vendor: component.vendor,
+            model: component.model,
+            memory_gb: memoryValue(component.memory_bytes),
+            quantity: component.quantity,
+          }
+        }),
       }
     : { name: '', notes: '', is_primary: first, components: [] }
 }
@@ -80,6 +99,8 @@ function payloadFor(draft: DraftRig): HardwareRigInput {
 
 export function HardwareSection({ onToast }: { onToast: ToastHandler }) {
   const [rigs, setRigs] = useState<HardwareRig[]>([])
+  const [catalog, setCatalog] = useState<HardwareCatalogItem[]>([])
+  const [catalogLoading, setCatalogLoading] = useState(true)
   const [editing, setEditing] = useState<string | 'new' | null>(null)
   const [draft, setDraft] = useState<DraftRig>(() => draftFor(undefined, true))
   const [saving, setSaving] = useState(false)
@@ -94,13 +115,22 @@ export function HardwareSection({ onToast }: { onToast: ToastHandler }) {
 
   useEffect(() => { load() }, [load])
 
+  useEffect(() => {
+    let active = true
+    api.hardwareCatalog()
+      .then((response) => { if (active) setCatalog(response.items) })
+      .catch(() => { if (active) setCatalog([]) })
+      .finally(() => { if (active) setCatalogLoading(false) })
+    return () => { active = false }
+  }, [])
+
   function startNew() {
     setDraft(draftFor(undefined, rigs.length === 0))
     setEditing('new')
   }
 
   function startEdit(rig: HardwareRig) {
-    setDraft(draftFor(rig))
+    setDraft(draftFor(rig, false, catalog))
     setEditing(rig.id)
   }
 
@@ -109,7 +139,7 @@ export function HardwareSection({ onToast }: { onToast: ToastHandler }) {
       ...current,
       components: [
         ...current.components,
-        { kind: 'gpu', vendor: '', model: '', memory_gb: '', quantity: 1 },
+        { source: 'catalog', catalog_id: '', kind: 'gpu', vendor: '', model: '', memory_gb: '', quantity: 1 },
       ],
     }))
   }
@@ -121,6 +151,17 @@ export function HardwareSection({ onToast }: { onToast: ToastHandler }) {
         componentIndex === index ? { ...component, ...patch } : component,
       ),
     }))
+  }
+
+  function selectCatalogItem(index: number, item: HardwareCatalogItem) {
+    updateComponent(index, {
+      source: 'catalog',
+      catalog_id: item.id,
+      kind: item.kind,
+      vendor: item.vendor,
+      model: item.model,
+      memory_gb: item.memory_gb.length === 1 ? String(item.memory_gb[0]) : '',
+    })
   }
 
   async function save(event: FormEvent) {
@@ -254,13 +295,52 @@ export function HardwareSection({ onToast }: { onToast: ToastHandler }) {
                   </span>
                   <button type="button" className="hardware-remove-component danger-text" onClick={() => setDraft((current) => ({ ...current, components: current.components.filter((_, componentIndex) => componentIndex !== index) }))} aria-label={`Remove component ${index + 1}`}><Trash2 size={14} /></button>
                 </div>
-                <div className="hardware-component-fields">
-                  <label className="hardware-field"><span>Type</span><select value={component.kind} onChange={(event) => updateComponent(index, { kind: event.target.value as HardwareComponentKind })}>{Object.entries(kindLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
-                  <label className="hardware-field"><span>Vendor</span><input value={component.vendor} onChange={(event) => updateComponent(index, { vendor: event.target.value })} maxLength={80} placeholder="NVIDIA" /></label>
-                  <label className="hardware-field"><span>Model</span><input value={component.model} onChange={(event) => updateComponent(index, { model: event.target.value })} maxLength={120} placeholder="RTX 4090" required /></label>
-                  <label className="hardware-field"><span>Memory <small>GiB</small></span><input type="number" min="0.01" max="1048576" step="0.01" value={component.memory_gb} onChange={(event) => updateComponent(index, { memory_gb: event.target.value })} placeholder="24" required /></label>
-                  <label className="hardware-field"><span>Quantity</span><input type="number" min="1" max="16" value={component.quantity} onChange={(event) => updateComponent(index, { quantity: Number(event.target.value) })} required /></label>
-                </div>
+                {component.source === 'catalog' ? (() => {
+                  const selected = catalog.find((item) => item.id === component.catalog_id) || null
+                  const memoryLabel = selected?.kind === 'gpu' ? 'VRAM' : selected?.kind === 'apple_silicon' ? 'Unified memory' : 'Usable system RAM'
+                  return (
+                    <div className="hardware-component-catalog-body">
+                      <HardwareCatalogPicker
+                        inputId={`hardware-component-${index}`}
+                        items={catalog}
+                        loading={catalogLoading}
+                        selected={selected}
+                        onSelect={(item) => selectCatalogItem(index, item)}
+                        onCustom={() => updateComponent(index, { source: 'custom', catalog_id: '' })}
+                      />
+                      {selected && (
+                        <div className="hardware-catalog-configuration">
+                          <label className="hardware-field">
+                            <span>{memoryLabel} <small>GiB</small></span>
+                            {selected.memory_gb.length > 0 ? (
+                              <select value={component.memory_gb} onChange={(event) => updateComponent(index, { memory_gb: event.target.value })} required>
+                                {selected.memory_gb.length > 1 && <option value="">Select memory</option>}
+                                {selected.memory_gb.map((memory) => <option value={memory} key={memory}>{memory} GiB</option>)}
+                              </select>
+                            ) : (
+                              <input type="number" min="0.01" max="1048576" step="0.01" value={component.memory_gb} onChange={(event) => updateComponent(index, { memory_gb: event.target.value })} placeholder="64" required />
+                            )}
+                          </label>
+                          <label className="hardware-field"><span>Quantity</span><input type="number" min="1" max="16" value={component.quantity} onChange={(event) => updateComponent(index, { quantity: Number(event.target.value) })} required /></label>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })() : (
+                  <div className="hardware-custom-component">
+                    <div className="hardware-custom-heading">
+                      <span><strong>Custom hardware</strong><small>Use this only when the model is missing from the catalog.</small></span>
+                      <button type="button" className="text-button" onClick={() => updateComponent(index, { source: 'catalog', catalog_id: '', vendor: '', model: '', memory_gb: '' })}>Choose from catalog</button>
+                    </div>
+                    <div className="hardware-component-fields">
+                      <label className="hardware-field"><span>Type</span><select value={component.kind} onChange={(event) => updateComponent(index, { kind: event.target.value as HardwareComponentKind })}>{Object.entries(kindLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+                      <label className="hardware-field"><span>Vendor</span><input value={component.vendor} onChange={(event) => updateComponent(index, { vendor: event.target.value })} maxLength={80} placeholder="NVIDIA" /></label>
+                      <label className="hardware-field"><span>Model</span><input value={component.model} onChange={(event) => updateComponent(index, { model: event.target.value })} maxLength={120} placeholder="RTX 4090" required /></label>
+                      <label className="hardware-field"><span>Memory <small>GiB</small></span><input type="number" min="0.01" max="1048576" step="0.01" value={component.memory_gb} onChange={(event) => updateComponent(index, { memory_gb: event.target.value })} placeholder="24" required /></label>
+                      <label className="hardware-field"><span>Quantity</span><input type="number" min="1" max="16" value={component.quantity} onChange={(event) => updateComponent(index, { quantity: Number(event.target.value) })} required /></label>
+                    </div>
+                  </div>
+                )}
               </article>
             ))}
           </section>
