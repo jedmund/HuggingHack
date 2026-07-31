@@ -64,7 +64,7 @@ export const api = {
       body: JSON.stringify(payload),
     }).then(applyAuth),
   logout: () =>
-    request<{ status: string }>('/api/auth/logout', { method: 'POST' }).finally(() => {
+    request<{ status: string; logout_url: string | null }>('/api/auth/logout', { method: 'POST' }).finally(() => {
       csrfToken = null
     }),
   users: () => request<{ items: User[] }>('/api/users'),

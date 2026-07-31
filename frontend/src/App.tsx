@@ -887,9 +887,11 @@ function RuntimesPage() {
 
 function SettingsPage({
   user,
+  authStatus,
   onToast,
 }: {
   user: User
+  authStatus: AuthStatus
   onToast: ToastHandler
 }) {
   const [health, setHealth] = useState<Health | null>(null)
@@ -1106,7 +1108,7 @@ function SettingsPage({
             </form>
           )}
         </section>
-        <AccountAdmin user={user} onToast={onToast} />
+        <AccountAdmin user={user} authStatus={authStatus} onToast={onToast} />
       </div>
 
       <section className="settings-section security-section">
@@ -1182,11 +1184,13 @@ function Application({
   const user = authStatus.user as User
 
   async function logout() {
+    let providerLogout: string | null = null
     try {
-      await api.logout()
+      providerLogout = (await api.logout()).logout_url
     } finally {
       onAuthChange({ ...authStatus, user: null, csrf_token: null })
     }
+    if (providerLogout) window.location.assign(providerLogout)
   }
 
   return (
@@ -1218,7 +1222,7 @@ function Application({
               : <Navigate to="/local" replace />
           }
         />
-        <Route path="/settings" element={<SettingsPage user={user} onToast={showToast} />} />
+        <Route path="/settings" element={<SettingsPage user={user} authStatus={authStatus} onToast={showToast} />} />
         <Route path="*" element={<Navigate to="/models" replace />} />
       </Routes>
       {toast && (
@@ -1273,7 +1277,7 @@ export default function App() {
   }
 
   if (status.setup_required || !status.user) {
-    return <AuthScreen setup={status.setup_required} onAuthenticated={setStatus} />
+    return <AuthScreen status={status} onAuthenticated={setStatus} />
   }
 
   return (
