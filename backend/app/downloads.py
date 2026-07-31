@@ -237,8 +237,9 @@ class DownloadManager:
 
     def _stop_process(self, download_id: str) -> None:
         with self._lock:
-            event = self._cancel_events.setdefault(download_id, threading.Event())
-            event.set()
+            event = self._cancel_events.get(download_id)
+            if event:
+                event.set()
             process = self._processes.get(download_id)
             if process and process.poll() is None:
                 process.terminate()
