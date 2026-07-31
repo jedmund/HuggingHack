@@ -210,7 +210,7 @@ That layout is portable and works with vLLM, llama.cpp, Ollama import workflows,
 ## Use S3-compatible model storage
 
 Set `MODEL_STORAGE_BACKEND=s3` to keep complete managed repositories in AWS S3 or an
-S3-compatible service such as MinIO or Ceph. `/models` remains a local working cache because
+S3-compatible service such as Garage or Ceph. `/models` remains a local working cache because
 vLLM, llama.cpp, and similar runtimes require filesystem paths.
 
 ```dotenv
@@ -223,13 +223,45 @@ AWS_ACCESS_KEY_ID=replace-me
 AWS_SECRET_ACCESS_KEY=replace-me
 ```
 
-For MinIO or another custom endpoint:
+For a generic custom endpoint:
 
 ```dotenv
-S3_ENDPOINT_URL=http://minio:9000
+S3_ENDPOINT_URL=https://s3.example.com
 S3_ADDRESSING_STYLE=path
+```
+
+### Use Garage
+
+Set the Garage provider preset when the durable store is a Garage cluster:
+
+```dotenv
+MODEL_STORAGE_BACKEND=s3
+S3_PROVIDER=garage
+S3_BUCKET=hugginghack-models
+S3_PREFIX=models
+S3_ENDPOINT_URL=http://garage:3900
+AWS_ACCESS_KEY_ID=GKreplace-me
+AWS_SECRET_ACCESS_KEY=replace-me
 S3_USE_SSL=false
 ```
+
+The preset defaults `S3_REGION` to `garage`, uses path-style SigV4 requests, and limits
+SDK checksums to those required by the S3 operation. You can still override the region and
+addressing style when your Garage deployment uses different values. Do not set
+`S3_STORAGE_CLASS`; Garage does not implement S3 storage classes.
+
+Create the bucket and an application key in Garage, then grant that key read, write, and
+owner access to the bucket:
+
+```bash
+garage bucket create hugginghack-models
+garage key create hugginghack
+garage bucket allow --read --write --owner hugginghack-models --key hugginghack
+```
+
+When Garage runs in the same Compose project or Docker network, use the container service
+name in `S3_ENDPOINT_URL`, as shown above. For a Garage server on another host, use its
+TLS endpoint reachable from the HuggingHack container and leave `S3_USE_SSL=true`.
 
 HuggingHack also supports boto3's normal credential chain, including attached IAM roles, so
 static keys are optional on AWS. Credentials stay server-side and are never returned by the API.
@@ -238,7 +270,7 @@ partially transferred repositories are not indexed as complete. From the Local l
 remove a local cache copy while keeping its durable S3 copy, then restore it when an inference
 runtime needs the files.
 
-The bucket identity needs `s3:ListBucket` on the bucket and `s3:GetObject`,
+On AWS, the bucket identity needs `s3:ListBucket` on the bucket and `s3:GetObject`,
 `s3:PutObject`, and `s3:DeleteObject` on the configured prefix.
 Keep the metadata database backed up too: private upload manifests fail closed unless their
 matching ownership metadata is present.

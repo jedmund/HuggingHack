@@ -397,6 +397,7 @@ function LocalPage({ onToast, user }: { onToast: ToastHandler; user: User }) {
   const capacityPercent = health
     ? Math.min(100, ((health.storage.total_bytes - health.storage.free_bytes) / health.storage.total_bytes) * 100)
     : 0
+  const objectStorageName = health?.object_storage.provider === 'garage' ? 'Garage' : 'S3'
 
   return (
     <>
@@ -421,7 +422,9 @@ function LocalPage({ onToast, user }: { onToast: ToastHandler; user: User }) {
             <div className="storage-title">
               <strong>
                 {health?.object_storage.enabled
-                  ? health.object_storage.connected ? 'S3 storage online' : 'S3 storage needs attention'
+                  ? health.object_storage.connected
+                    ? `${objectStorageName} storage online`
+                    : `${objectStorageName} storage needs attention`
                   : health?.storage.writable ? 'Model storage online' : 'Model storage needs attention'}
               </strong>
               <code>
@@ -813,6 +816,7 @@ function SettingsPage({
   useEffect(() => {
     api.health().then(setHealth).catch(() => undefined)
   }, [])
+  const objectStorageName = health?.object_storage.provider === 'garage' ? 'Garage' : 'S3'
   return (
     <div className="standard-page settings-page">
       <div className="page-heading">
@@ -828,10 +832,10 @@ function SettingsPage({
           <div className="settings-section-title">
             <Server size={20} />
             <div>
-              <h2>{health?.object_storage.enabled ? 'S3 + local cache' : 'Storage mount'}</h2>
+              <h2>{health?.object_storage.enabled ? `${objectStorageName} + local cache` : 'Storage mount'}</h2>
               <p>
                 {health?.object_storage.enabled
-                  ? 'S3 is durable storage; /models is the working cache used by inference engines.'
+                  ? `${objectStorageName} is durable storage; /models is the working cache used by inference engines.`
                   : 'The container sees your configured host folder as /models.'}
               </p>
             </div>
@@ -848,7 +852,7 @@ function SettingsPage({
             {health?.object_storage.enabled && (
               <>
                 <div>
-                  <dt>S3 location</dt>
+                  <dt>{objectStorageName} location</dt>
                   <dd>
                     <code>
                       s3://{health.object_storage.bucket}/{health.object_storage.prefix || ''}
@@ -878,7 +882,9 @@ function SettingsPage({
             <span>.env</span>
             <code>
               {health?.object_storage.enabled
-                ? 'MODEL_STORAGE_BACKEND=s3\nS3_BUCKET=my-models\nS3_PREFIX=models'
+                ? health.object_storage.provider === 'garage'
+                  ? 'MODEL_STORAGE_BACKEND=s3\nS3_PROVIDER=garage\nS3_BUCKET=my-models\nS3_ENDPOINT_URL=https://s3.example.com'
+                  : 'MODEL_STORAGE_BACKEND=s3\nS3_BUCKET=my-models\nS3_PREFIX=models'
                 : 'MODEL_STORAGE_PATH=/volume1/AI/models'}
             </code>
           </div>

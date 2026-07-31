@@ -8,6 +8,7 @@ export interface StorageHealth {
 
 export interface ObjectStorageHealth {
   backend: 'filesystem' | 's3'
+  provider: 's3' | 'garage' | null
   enabled: boolean
   connected: boolean
   bucket?: string | null
