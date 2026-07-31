@@ -201,7 +201,7 @@ class Database:
                     kind TEXT NOT NULL CHECK (kind IN ('cpu', 'gpu', 'apple_silicon')),
                     vendor TEXT NOT NULL DEFAULT '',
                     model TEXT NOT NULL,
-                    memory_bytes INTEGER NOT NULL CHECK (memory_bytes >= 0),
+                    memory_bytes BIGINT NOT NULL CHECK (memory_bytes >= 0),
                     quantity INTEGER NOT NULL DEFAULT 1 CHECK (quantity >= 1 AND quantity <= 16),
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
@@ -215,8 +215,8 @@ class Database:
                     repo_id TEXT NOT NULL,
                     revision TEXT NOT NULL,
                     status TEXT NOT NULL,
-                    total_bytes INTEGER NOT NULL DEFAULT 0,
-                    downloaded_bytes INTEGER NOT NULL DEFAULT 0,
+                    total_bytes BIGINT NOT NULL DEFAULT 0,
+                    downloaded_bytes BIGINT NOT NULL DEFAULT 0,
                     progress REAL NOT NULL DEFAULT 0,
                     speed_bps REAL NOT NULL DEFAULT 0,
                     error TEXT,
@@ -250,7 +250,7 @@ class Database:
                 CREATE TABLE IF NOT EXISTS local_models (
                     repo_id TEXT PRIMARY KEY,
                     relative_path TEXT NOT NULL UNIQUE,
-                    size_bytes INTEGER NOT NULL DEFAULT 0,
+                    size_bytes BIGINT NOT NULL DEFAULT 0,
                     file_count INTEGER NOT NULL DEFAULT 0,
                     modified_at TEXT NOT NULL,
                     downloaded_at TEXT,
@@ -280,8 +280,8 @@ class Database:
                     runtime_model_name TEXT NOT NULL,
                     source_file TEXT,
                     status TEXT NOT NULL,
-                    total_bytes INTEGER NOT NULL DEFAULT 0,
-                    processed_bytes INTEGER NOT NULL DEFAULT 0,
+                    total_bytes BIGINT NOT NULL DEFAULT 0,
+                    processed_bytes BIGINT NOT NULL DEFAULT 0,
                     progress REAL NOT NULL DEFAULT 0,
                     message TEXT NOT NULL DEFAULT '',
                     error TEXT,
@@ -377,6 +377,19 @@ class Database:
                 )
             if "remote_uri" not in local_model_columns:
                 connection.execute("ALTER TABLE local_models ADD COLUMN remote_uri TEXT")
+            if self.backend == "postgresql":
+                for table, column in (
+                    ("downloads", "total_bytes"),
+                    ("downloads", "downloaded_bytes"),
+                    ("local_models", "size_bytes"),
+                    ("runtime_jobs", "total_bytes"),
+                    ("runtime_jobs", "processed_bytes"),
+                    ("hardware_components", "memory_bytes"),
+                ):
+                    if self._column_types(connection, table).get(column) != "bigint":
+                        connection.execute(
+                            f"ALTER TABLE {table} ALTER COLUMN {column} TYPE BIGINT"
+                        )
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_downloads_user_created "
                 "ON downloads(user_id, created_at DESC)"
@@ -414,6 +427,22 @@ class Database:
                 (table,),
             ).fetchall()
         return {row["name"] for row in rows}
+
+    def _column_types(
+        self, connection: sqlite3.Connection | _PostgresConnection, table: str
+    ) -> dict[str, str]:
+        if self.backend == "sqlite":
+            rows = connection.execute(f"PRAGMA table_info({table})").fetchall()
+            return {row["name"]: str(row["type"]).lower() for row in rows}
+        rows = connection.execute(
+            """
+            SELECT column_name AS name, data_type AS type
+            FROM information_schema.columns
+            WHERE table_schema = current_schema() AND table_name = ?
+            """,
+            (table,),
+        ).fetchall()
+        return {row["name"]: str(row["type"]).lower() for row in rows}
 
     @staticmethod
     def _decode_row(
