@@ -70,12 +70,17 @@ class _PostgresConnection:
 
 DOWNLOAD_FIELDS = {
     "status",
+    "resolved_revision",
     "total_bytes",
     "downloaded_bytes",
     "progress",
     "speed_bps",
     "error",
     "target_path",
+    "staging_path",
+    "pause_reason",
+    "cleaned_at",
+    "payload_json",
     "metadata_json",
     "updated_at",
     "completed_at",
@@ -150,13 +155,68 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_sessions_expiry
                     ON sessions(expires_at);
 
+                CREATE TABLE IF NOT EXISTS oidc_identities (
+                    issuer TEXT NOT NULL,
+                    subject TEXT NOT NULL,
+                    user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+                    preferred_username TEXT,
+                    email TEXT,
+                    created_at TEXT NOT NULL,
+                    last_login_at TEXT NOT NULL,
+                    PRIMARY KEY(issuer, subject)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_oidc_identities_user
+                    ON oidc_identities(user_id);
+
+                CREATE TABLE IF NOT EXISTS oidc_login_states (
+                    state_hash TEXT PRIMARY KEY,
+                    nonce TEXT NOT NULL,
+                    code_verifier TEXT NOT NULL,
+                    return_to TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_oidc_login_states_expiry
+                    ON oidc_login_states(expires_at);
+
+                CREATE TABLE IF NOT EXISTS hardware_rigs (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    name TEXT NOT NULL,
+                    notes TEXT NOT NULL DEFAULT '',
+                    is_primary INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(user_id, name)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_hardware_rigs_user
+                    ON hardware_rigs(user_id, is_primary DESC, created_at);
+
+                CREATE TABLE IF NOT EXISTS hardware_components (
+                    id TEXT PRIMARY KEY,
+                    rig_id TEXT NOT NULL REFERENCES hardware_rigs(id) ON DELETE CASCADE,
+                    kind TEXT NOT NULL CHECK (kind IN ('cpu', 'gpu', 'apple_silicon')),
+                    vendor TEXT NOT NULL DEFAULT '',
+                    model TEXT NOT NULL,
+                    memory_bytes BIGINT NOT NULL CHECK (memory_bytes >= 0),
+                    quantity INTEGER NOT NULL DEFAULT 1 CHECK (quantity >= 1 AND quantity <= 16),
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_hardware_components_rig
+                    ON hardware_components(rig_id);
+
                 CREATE TABLE IF NOT EXISTS downloads (
                     id TEXT PRIMARY KEY,
                     repo_id TEXT NOT NULL,
                     revision TEXT NOT NULL,
                     status TEXT NOT NULL,
-                    total_bytes INTEGER NOT NULL DEFAULT 0,
-                    downloaded_bytes INTEGER NOT NULL DEFAULT 0,
+                    total_bytes BIGINT NOT NULL DEFAULT 0,
+                    downloaded_bytes BIGINT NOT NULL DEFAULT 0,
                     progress REAL NOT NULL DEFAULT 0,
                     speed_bps REAL NOT NULL DEFAULT 0,
                     error TEXT,
@@ -166,16 +226,31 @@ class Database:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     completed_at TEXT,
-                    user_id TEXT REFERENCES users(id) ON DELETE SET NULL
+                    user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+                    resolved_revision TEXT,
+                    staging_path TEXT,
+                    pause_reason TEXT,
+                    cleaned_at TEXT
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_downloads_status
                     ON downloads(status, updated_at DESC);
 
+                CREATE TABLE IF NOT EXISTS download_schedule (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    enabled INTEGER NOT NULL DEFAULT 0,
+                    timezone TEXT NOT NULL DEFAULT 'UTC',
+                    weekdays_json TEXT NOT NULL DEFAULT '[]',
+                    start_time TEXT NOT NULL DEFAULT '00:00',
+                    end_time TEXT NOT NULL DEFAULT '06:00',
+                    updated_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+                    updated_at TEXT NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS local_models (
                     repo_id TEXT PRIMARY KEY,
                     relative_path TEXT NOT NULL UNIQUE,
-                    size_bytes INTEGER NOT NULL DEFAULT 0,
+                    size_bytes BIGINT NOT NULL DEFAULT 0,
                     file_count INTEGER NOT NULL DEFAULT 0,
                     modified_at TEXT NOT NULL,
                     downloaded_at TEXT,
@@ -205,8 +280,8 @@ class Database:
                     runtime_model_name TEXT NOT NULL,
                     source_file TEXT,
                     status TEXT NOT NULL,
-                    total_bytes INTEGER NOT NULL DEFAULT 0,
-                    processed_bytes INTEGER NOT NULL DEFAULT 0,
+                    total_bytes BIGINT NOT NULL DEFAULT 0,
+                    processed_bytes BIGINT NOT NULL DEFAULT 0,
                     progress REAL NOT NULL DEFAULT 0,
                     message TEXT NOT NULL DEFAULT '',
                     error TEXT,
@@ -282,6 +357,14 @@ class Database:
                     "ALTER TABLE downloads ADD COLUMN user_id TEXT "
                     "REFERENCES users(id) ON DELETE SET NULL"
                 )
+            for name in (
+                "resolved_revision",
+                "staging_path",
+                "pause_reason",
+                "cleaned_at",
+            ):
+                if name not in columns:
+                    connection.execute(f"ALTER TABLE downloads ADD COLUMN {name} TEXT")
             local_model_columns = self._column_names(connection, "local_models")
             if "storage_backend" not in local_model_columns:
                 connection.execute(
@@ -294,12 +377,38 @@ class Database:
                 )
             if "remote_uri" not in local_model_columns:
                 connection.execute("ALTER TABLE local_models ADD COLUMN remote_uri TEXT")
+            if self.backend == "postgresql":
+                for table, column in (
+                    ("downloads", "total_bytes"),
+                    ("downloads", "downloaded_bytes"),
+                    ("local_models", "size_bytes"),
+                    ("runtime_jobs", "total_bytes"),
+                    ("runtime_jobs", "processed_bytes"),
+                    ("hardware_components", "memory_bytes"),
+                ):
+                    if self._column_types(connection, table).get(column) != "bigint":
+                        connection.execute(
+                            f"ALTER TABLE {table} ALTER COLUMN {column} TYPE BIGINT"
+                        )
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_downloads_user_created "
                 "ON downloads(user_id, created_at DESC)"
             )
             connection.execute(
+                """
+                INSERT INTO download_schedule (
+                    id, enabled, timezone, weekdays_json, start_time, end_time, updated_at
+                ) VALUES (1, 0, 'UTC', '[]', '00:00', '06:00', ?)
+                ON CONFLICT(id) DO NOTHING
+                """,
+                (datetime.now(timezone.utc).isoformat(),),
+            )
+            connection.execute(
                 "DELETE FROM sessions WHERE expires_at <= ?",
+                (datetime.now(timezone.utc).isoformat(),),
+            )
+            connection.execute(
+                "DELETE FROM oidc_login_states WHERE expires_at <= ?",
                 (datetime.now(timezone.utc).isoformat(),),
             )
 
@@ -318,6 +427,22 @@ class Database:
                 (table,),
             ).fetchall()
         return {row["name"] for row in rows}
+
+    def _column_types(
+        self, connection: sqlite3.Connection | _PostgresConnection, table: str
+    ) -> dict[str, str]:
+        if self.backend == "sqlite":
+            rows = connection.execute(f"PRAGMA table_info({table})").fetchall()
+            return {row["name"]: str(row["type"]).lower() for row in rows}
+        rows = connection.execute(
+            """
+            SELECT column_name AS name, data_type AS type
+            FROM information_schema.columns
+            WHERE table_schema = current_schema() AND table_name = ?
+            """,
+            (table,),
+        ).fetchall()
+        return {row["name"]: str(row["type"]).lower() for row in rows}
 
     @staticmethod
     def _decode_row(
@@ -398,6 +523,268 @@ class Database:
                 (password_hash, updated_at, user_id),
             )
 
+    def update_user_profile(
+        self,
+        user_id: str,
+        display_name: str,
+        role: str,
+        updated_at: str,
+    ) -> dict[str, Any] | None:
+        with self._write_lock, self.connect() as connection:
+            connection.execute(
+                """
+                UPDATE users
+                SET display_name = ?, role = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (display_name, role, updated_at, user_id),
+            )
+        return self.get_user(user_id, include_secret=False)
+
+    def create_oidc_login_state(self, record: dict[str, Any]) -> None:
+        with self._write_lock, self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO oidc_login_states (
+                    state_hash, nonce, code_verifier, return_to, created_at, expires_at
+                ) VALUES (
+                    :state_hash, :nonce, :code_verifier, :return_to, :created_at, :expires_at
+                )
+                """,
+                record,
+            )
+
+    def consume_oidc_login_state(self, state_hash: str) -> dict[str, Any] | None:
+        with self._write_lock, self.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM oidc_login_states WHERE state_hash = ?",
+                (state_hash,),
+            ).fetchone()
+            connection.execute(
+                "DELETE FROM oidc_login_states WHERE state_hash = ?",
+                (state_hash,),
+            )
+        return dict(row) if row else None
+
+    def get_oidc_identity(self, issuer: str, subject: str) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM oidc_identities
+                WHERE issuer = ? AND subject = ?
+                """,
+                (issuer, subject),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def get_oidc_identity_for_user(self, user_id: str) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM oidc_identities WHERE user_id = ?",
+                (user_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def link_oidc_identity(self, record: dict[str, Any]) -> None:
+        with self._write_lock, self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO oidc_identities (
+                    issuer, subject, user_id, preferred_username, email,
+                    created_at, last_login_at
+                ) VALUES (
+                    :issuer, :subject, :user_id, :preferred_username, :email,
+                    :created_at, :last_login_at
+                )
+                """,
+                record,
+            )
+
+    def update_oidc_identity(
+        self,
+        issuer: str,
+        subject: str,
+        preferred_username: str | None,
+        email: str | None,
+        last_login_at: str,
+    ) -> None:
+        with self._write_lock, self.connect() as connection:
+            connection.execute(
+                """
+                UPDATE oidc_identities
+                SET preferred_username = ?, email = ?, last_login_at = ?
+                WHERE issuer = ? AND subject = ?
+                """,
+                (preferred_username, email, last_login_at, issuer, subject),
+            )
+
+    def _hardware_rig(
+        self,
+        connection: sqlite3.Connection | _PostgresConnection,
+        row: sqlite3.Row | dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        if row is None:
+            return None
+        rig = dict(row)
+        rig["is_primary"] = bool(rig["is_primary"])
+        components = connection.execute(
+            """
+            SELECT * FROM hardware_components
+            WHERE rig_id = ?
+            ORDER BY kind, vendor, model, id
+            """,
+            (rig["id"],),
+        ).fetchall()
+        rig["components"] = [dict(component) for component in components]
+        return rig
+
+    def list_hardware_rigs(self, user_id: str) -> list[dict[str, Any]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM hardware_rigs
+                WHERE user_id = ?
+                ORDER BY is_primary DESC, created_at, name
+                """,
+                (user_id,),
+            ).fetchall()
+            return [self._hardware_rig(connection, row) for row in rows]
+
+    def get_hardware_rig(self, rig_id: str, user_id: str) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM hardware_rigs WHERE id = ? AND user_id = ?",
+                (rig_id, user_id),
+            ).fetchone()
+            return self._hardware_rig(connection, row)
+
+    def create_hardware_rig(
+        self, record: dict[str, Any], components: list[dict[str, Any]]
+    ) -> dict[str, Any] | None:
+        with self._write_lock, self.connect() as connection:
+            existing = connection.execute(
+                "SELECT COUNT(*) AS count FROM hardware_rigs WHERE user_id = ?",
+                (record["user_id"],),
+            ).fetchone()
+            is_primary = bool(record.get("is_primary")) or int(existing["count"]) == 0
+            if is_primary:
+                connection.execute(
+                    "UPDATE hardware_rigs SET is_primary = 0 WHERE user_id = ?",
+                    (record["user_id"],),
+                )
+            connection.execute(
+                """
+                INSERT INTO hardware_rigs (
+                    id, user_id, name, notes, is_primary, created_at, updated_at
+                ) VALUES (
+                    :id, :user_id, :name, :notes, :is_primary, :created_at, :updated_at
+                )
+                """,
+                {**record, "is_primary": int(is_primary)},
+            )
+            for component in components:
+                connection.execute(
+                    """
+                    INSERT INTO hardware_components (
+                        id, rig_id, kind, vendor, model, memory_bytes, quantity,
+                        created_at, updated_at
+                    ) VALUES (
+                        :id, :rig_id, :kind, :vendor, :model, :memory_bytes, :quantity,
+                        :created_at, :updated_at
+                    )
+                    """,
+                    component,
+                )
+        return self.get_hardware_rig(record["id"], record["user_id"])
+
+    def update_hardware_rig(
+        self,
+        rig_id: str,
+        user_id: str,
+        record: dict[str, Any],
+        components: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        with self._write_lock, self.connect() as connection:
+            current = connection.execute(
+                "SELECT * FROM hardware_rigs WHERE id = ? AND user_id = ?",
+                (rig_id, user_id),
+            ).fetchone()
+            if not current:
+                return None
+            if record.get("is_primary"):
+                connection.execute(
+                    "UPDATE hardware_rigs SET is_primary = 0 WHERE user_id = ?",
+                    (user_id,),
+                )
+            connection.execute(
+                """
+                UPDATE hardware_rigs
+                SET name = :name, notes = :notes, is_primary = :is_primary,
+                    updated_at = :updated_at
+                WHERE id = :id AND user_id = :user_id
+                """,
+                {
+                    **record,
+                    "id": rig_id,
+                    "user_id": user_id,
+                    "is_primary": int(bool(record.get("is_primary"))),
+                },
+            )
+            primary = connection.execute(
+                "SELECT id FROM hardware_rigs WHERE user_id = ? AND is_primary = 1 LIMIT 1",
+                (user_id,),
+            ).fetchone()
+            if not primary:
+                connection.execute(
+                    "UPDATE hardware_rigs SET is_primary = 1 WHERE id = ?",
+                    (rig_id,),
+                )
+            connection.execute(
+                "DELETE FROM hardware_components WHERE rig_id = ?",
+                (rig_id,),
+            )
+            for component in components:
+                connection.execute(
+                    """
+                    INSERT INTO hardware_components (
+                        id, rig_id, kind, vendor, model, memory_bytes, quantity,
+                        created_at, updated_at
+                    ) VALUES (
+                        :id, :rig_id, :kind, :vendor, :model, :memory_bytes, :quantity,
+                        :created_at, :updated_at
+                    )
+                    """,
+                    component,
+                )
+        return self.get_hardware_rig(rig_id, user_id)
+
+    def delete_hardware_rig(self, rig_id: str, user_id: str) -> bool:
+        with self._write_lock, self.connect() as connection:
+            current = connection.execute(
+                "SELECT is_primary FROM hardware_rigs WHERE id = ? AND user_id = ?",
+                (rig_id, user_id),
+            ).fetchone()
+            if not current:
+                return False
+            connection.execute(
+                "DELETE FROM hardware_rigs WHERE id = ? AND user_id = ?",
+                (rig_id, user_id),
+            )
+            if bool(current["is_primary"]):
+                replacement = connection.execute(
+                    """
+                    SELECT id FROM hardware_rigs
+                    WHERE user_id = ? ORDER BY created_at, name LIMIT 1
+                    """,
+                    (user_id,),
+                ).fetchone()
+                if replacement:
+                    connection.execute(
+                        "UPDATE hardware_rigs SET is_primary = 1 WHERE id = ?",
+                        (replacement["id"],),
+                    )
+        return True
+
     def create_session(self, record: dict[str, Any]) -> None:
         with self._write_lock, self.connect() as connection:
             connection.execute(
@@ -447,18 +834,27 @@ class Database:
             )
 
     def create_download(self, record: dict[str, Any]) -> dict[str, Any]:
-        params = {**record, "user_id": record.get("user_id")}
+        params = {
+            **record,
+            "user_id": record.get("user_id"),
+            "resolved_revision": record.get("resolved_revision"),
+            "staging_path": record.get("staging_path"),
+            "pause_reason": record.get("pause_reason"),
+            "cleaned_at": record.get("cleaned_at"),
+        }
         with self._write_lock, self.connect() as connection:
             connection.execute(
                 """
                 INSERT INTO downloads (
                     id, repo_id, revision, status, total_bytes, downloaded_bytes,
                     progress, speed_bps, error, target_path, payload_json,
-                    metadata_json, created_at, updated_at, completed_at, user_id
+                    metadata_json, created_at, updated_at, completed_at, user_id,
+                    resolved_revision, staging_path, pause_reason, cleaned_at
                 ) VALUES (
                     :id, :repo_id, :revision, :status, :total_bytes, :downloaded_bytes,
                     :progress, :speed_bps, :error, :target_path, :payload_json,
-                    :metadata_json, :created_at, :updated_at, :completed_at, :user_id
+                    :metadata_json, :created_at, :updated_at, :completed_at, :user_id,
+                    :resolved_revision, :staging_path, :pause_reason, :cleaned_at
                 )
                 """,
                 params,
@@ -473,6 +869,29 @@ class Database:
         safe_changes["id"] = download_id
         with self._write_lock, self.connect() as connection:
             connection.execute(f"UPDATE downloads SET {assignments} WHERE id = :id", safe_changes)
+        return self.get_download(download_id)
+
+    def update_download_if_status(
+        self,
+        download_id: str,
+        expected_statuses: set[str],
+        **changes: Any,
+    ) -> dict[str, Any] | None:
+        safe_changes = {key: value for key, value in changes.items() if key in DOWNLOAD_FIELDS}
+        if not safe_changes or not expected_statuses:
+            return self.get_download(download_id)
+        status_names = sorted(expected_statuses)
+        placeholders = ", ".join("?" for _ in status_names)
+        parameters = [*safe_changes.values(), download_id, *status_names]
+        positional_assignments = ", ".join(f"{key} = ?" for key in safe_changes)
+        with self._write_lock, self.connect() as connection:
+            cursor = connection.execute(
+                f"UPDATE downloads SET {positional_assignments} "
+                f"WHERE id = ? AND status IN ({placeholders})",
+                parameters,
+            )
+        if cursor.rowcount == 0:
+            return None
         return self.get_download(download_id)
 
     def get_download(self, download_id: str) -> dict[str, Any] | None:
@@ -513,7 +932,9 @@ class Database:
             row = connection.execute(
                 """
                 SELECT * FROM downloads
-                WHERE repo_id = ? AND status IN ('queued', 'preparing', 'downloading')
+                WHERE repo_id = ? AND status IN (
+                    'queued', 'scheduled', 'preparing', 'downloading', 'finalizing', 'paused'
+                )
                 ORDER BY created_at DESC LIMIT 1
                 """,
                 (repo_id,),
@@ -523,9 +944,59 @@ class Database:
     def unfinished_downloads(self) -> list[dict[str, Any]]:
         with self.connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM downloads WHERE status IN ('queued', 'preparing', 'downloading')"
+                """
+                SELECT * FROM downloads
+                WHERE status IN ('queued', 'scheduled', 'preparing', 'downloading', 'finalizing')
+                """
             ).fetchall()
         return [self._decode_row(row) for row in rows]
+
+    def get_download_schedule(self) -> dict[str, Any]:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM download_schedule WHERE id = 1"
+            ).fetchone()
+        if not row:
+            return {
+                "enabled": False,
+                "timezone": "UTC",
+                "weekdays": [],
+                "start_time": "00:00",
+                "end_time": "06:00",
+                "updated_by": None,
+                "updated_at": None,
+            }
+        result = dict(row)
+        try:
+            result["weekdays"] = json.loads(result.pop("weekdays_json") or "[]")
+        except (TypeError, json.JSONDecodeError):
+            result["weekdays"] = []
+        result["enabled"] = bool(result["enabled"])
+        result.pop("id", None)
+        return result
+
+    def update_download_schedule(self, record: dict[str, Any]) -> dict[str, Any]:
+        params = {
+            **record,
+            "enabled": int(bool(record["enabled"])),
+            "weekdays_json": json.dumps(record["weekdays"]),
+        }
+        with self._write_lock, self.connect() as connection:
+            connection.execute(
+                """
+                UPDATE download_schedule
+                SET enabled = :enabled,
+                    timezone = :timezone,
+                    weekdays_json = :weekdays_json,
+                    start_time = :start_time,
+                    end_time = :end_time,
+                    updated_by = :updated_by,
+                    updated_at = :updated_at
+                WHERE id = 1
+                """,
+                params,
+            )
+        return self.get_download_schedule()
 
     def create_runtime_job(self, record: dict[str, Any]) -> dict[str, Any]:
         with self._write_lock, self.connect() as connection:

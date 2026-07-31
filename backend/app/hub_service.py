@@ -13,6 +13,7 @@ from .config import Settings, validate_repo_id
 
 
 GGUF_RANGE_PATTERN = re.compile(r"^bytes=(\d+)-(\d+)$")
+GGUF_SHARD_PATTERN = re.compile(r"^(.*?)-\d{5}-of-\d{5}\.gguf$", re.IGNORECASE)
 GGUF_MAX_HEADER_BYTES = 50_000_000
 GGUF_MAX_RANGE_BYTES = 2_100_000
 
@@ -50,6 +51,74 @@ def _parameter_count(info: Any) -> int | None:
             values = [value for value in raw.values() if isinstance(value, int)]
             return sum(values) if values else None
     return None
+
+
+def weight_groups(
+    files: list[dict[str, Any]], library_name: str | None, tags: list[str]
+) -> list[dict[str, Any]]:
+    gguf_groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    gguf_by_directory: dict[str, list[dict[str, Any]]] = {}
+    for item in files:
+        path = PurePosixPath(str(item.get("path") or ""))
+        if path.suffix.lower() != ".gguf":
+            continue
+        directory = "" if str(path.parent) == "." else path.parent.as_posix()
+        match = GGUF_SHARD_PATTERN.match(path.name)
+        stem = match.group(1) if match else path.name
+        gguf_groups.setdefault((directory, stem), []).append(item)
+        gguf_by_directory.setdefault(directory, []).append(item)
+
+    groups: list[dict[str, Any]] = []
+    for (directory, stem), members in sorted(gguf_groups.items()):
+        members.sort(key=lambda item: str(item["path"]))
+        all_directory_members = gguf_by_directory[directory]
+        can_select_folder = bool(directory) and len(members) == len(all_directory_members)
+        selection = (
+            [{"path": directory, "kind": "folder"}]
+            if can_select_folder
+            else [{"path": str(item["path"]), "kind": "file"} for item in members]
+        )
+        label = PurePosixPath(directory).name if can_select_folder else stem
+        groups.append(
+            {
+                "id": f"gguf:{directory}:{stem}",
+                "label": label,
+                "format": "gguf",
+                "files": [str(item["path"]) for item in members],
+                "total_bytes": sum(int(item.get("size") or 0) for item in members),
+                "selection": selection,
+            }
+        )
+
+    is_mlx = (library_name or "").lower() == "mlx" or any(
+        tag.lower() == "mlx" for tag in tags
+    )
+    if is_mlx:
+        mlx_groups: dict[str, list[dict[str, Any]]] = {}
+        for item in files:
+            path = PurePosixPath(str(item.get("path") or ""))
+            if path.suffix.lower() != ".safetensors":
+                continue
+            directory = "" if str(path.parent) == "." else path.parent.as_posix()
+            mlx_groups.setdefault(directory, []).append(item)
+        for directory, members in sorted(mlx_groups.items()):
+            members.sort(key=lambda item: str(item["path"]))
+            selection = (
+                [{"path": directory, "kind": "folder"}]
+                if directory
+                else [{"path": str(item["path"]), "kind": "file"} for item in members]
+            )
+            groups.append(
+                {
+                    "id": f"mlx:{directory or 'root'}",
+                    "label": PurePosixPath(directory).name if directory else "MLX weights",
+                    "format": "mlx",
+                    "files": [str(item["path"]) for item in members],
+                    "total_bytes": sum(int(item.get("size") or 0) for item in members),
+                    "selection": selection,
+                }
+            )
+    return groups
 
 
 def validate_gguf_filename(filename: str) -> str:
@@ -175,6 +244,11 @@ class HubService:
                 "total_bytes": sum(item["size"] for item in files),
                 "security_status": self._security_status(info),
                 "source_url": f"{self.settings.hf_endpoint}/{validated}",
+                "weight_groups": weight_groups(
+                    files,
+                    result.get("library_name"),
+                    result.get("tags") or [],
+                ),
             }
         )
         return result

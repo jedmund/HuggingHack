@@ -7,19 +7,24 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any, Literal
+from urllib.parse import urlencode
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
 from .auth import AuthService, utc_iso
 from .config import settings, validate_repo_id
 from .database import INTEGRITY_ERRORS, Database
+from .download_schedule import validate_schedule
 from .downloads import DownloadManager
 from .hub_service import HubService
+from .hardware import evaluate_weight_groups
 from .indexer import LocalModelIndexer
+from .oidc import OIDCService
 from .runtimes import RuntimeManager
 from .storage import create_model_storage
 from .uploads import UploadManager
@@ -31,6 +36,7 @@ indexer = LocalModelIndexer(settings, database)
 model_storage = create_model_storage(settings)
 downloads = DownloadManager(settings, database, hub, indexer, model_storage)
 auth = AuthService(settings, database)
+oidc = OIDCService(settings, database, auth)
 uploads = UploadManager(settings, database, indexer, model_storage)
 runtimes = RuntimeManager(settings, database)
 
@@ -66,6 +72,7 @@ def refresh_model_index() -> dict[str, Any]:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    settings.validate_auth()
     settings.ensure_directories()
     database.initialize()
     database.fail_unfinished_runtime_jobs(utc_iso())
@@ -76,6 +83,7 @@ async def lifespan(_: FastAPI):
     downloads.shutdown()
     runtimes.shutdown()
     hub.close()
+    await oidc.close()
 
 
 app = FastAPI(
@@ -128,12 +136,54 @@ class PasswordChangeRequest(BaseModel):
     new_password: str = Field(min_length=12, max_length=256)
 
 
+class HardwareComponentRequest(BaseModel):
+    kind: Literal["cpu", "gpu", "apple_silicon"]
+    vendor: str = Field(default="", max_length=80)
+    model: str = Field(min_length=1, max_length=120)
+    memory_bytes: int = Field(ge=0, le=2**60)
+    quantity: int = Field(default=1, ge=1, le=16)
+
+    @field_validator("model")
+    @classmethod
+    def model_is_not_whitespace(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("Component model cannot be blank.")
+        return cleaned
+
+
+class HardwareRigRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    notes: str = Field(default="", max_length=500)
+    is_primary: bool = False
+    components: list[HardwareComponentRequest] = Field(default_factory=list, max_length=16)
+
+    @field_validator("name")
+    @classmethod
+    def name_is_not_whitespace(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("Rig name cannot be blank.")
+        return cleaned
+
+
+class DownloadSelectionPath(BaseModel):
+    path: str = Field(min_length=1, max_length=500)
+    kind: Literal["file", "folder"] = "file"
+
+
+class DownloadSelectionRequest(BaseModel):
+    paths: list[DownloadSelectionPath] = Field(min_length=1, max_length=200)
+    include_metadata: bool = True
+
+
 class DownloadRequest(BaseModel):
     repo_id: str
     revision: str = Field(default="main", max_length=200)
     allow_patterns: list[str] = Field(default_factory=list, max_length=50)
     ignore_patterns: list[str] = Field(default_factory=list, max_length=50)
-    mode: Literal["full", "safetensors", "gguf", "metadata", "custom"] = "full"
+    mode: Literal["full", "safetensors", "gguf", "metadata", "custom", "selection"] = "full"
+    selection: DownloadSelectionRequest | None = None
 
     @field_validator("repo_id")
     @classmethod
@@ -151,6 +201,14 @@ class DownloadRequest(BaseModel):
             if item:
                 cleaned.append(item)
         return cleaned
+
+
+class DownloadScheduleRequest(BaseModel):
+    enabled: bool = False
+    timezone: str = Field(min_length=1, max_length=100)
+    weekdays: list[int] = Field(default_factory=list, max_length=7)
+    start_time: str = Field(min_length=5, max_length=5)
+    end_time: str = Field(min_length=5, max_length=5)
 
 
 class CollectionRequest(BaseModel):
@@ -236,7 +294,7 @@ def set_session_cookie(response: Response, raw_token: str) -> None:
     response.set_cookie(
         auth.cookie_name,
         raw_token,
-        max_age=settings.session_ttl_hours * 3600,
+        max_age=settings.effective_session_ttl_hours * 3600,
         httponly=True,
         secure=settings.secure_cookies,
         samesite="lax",
@@ -245,8 +303,12 @@ def set_session_cookie(response: Response, raw_token: str) -> None:
 
 
 def auth_payload(session: dict[str, Any] | None = None) -> dict[str, Any]:
+    mode = settings.effective_auth_mode
     return {
-        "accounts_enabled": settings.accounts_enabled,
+        "accounts_enabled": mode != "disabled",
+        "auth_mode": mode,
+        "oidc_provider_name": settings.oidc_provider_name if mode == "oidc" else None,
+        "oidc_login_url": "/api/auth/oidc/login" if mode == "oidc" else None,
         "setup_required": auth.setup_required(),
         "user": session.get("user") if session else None,
         "csrf_token": session.get("csrf_token") if session else None,
@@ -273,11 +335,13 @@ def health() -> dict:
         "object_storage": object_storage,
         "hf_token_configured": bool(settings.hf_token),
         "hf_endpoint": settings.hf_endpoint,
-        "accounts_enabled": settings.accounts_enabled,
+        "accounts_enabled": settings.effective_auth_mode != "disabled",
+        "auth_mode": settings.effective_auth_mode,
         "upload_chunk_bytes": settings.upload_chunk_mb * 1024**2,
         "max_upload_size_bytes": settings.max_upload_size_gb * 1024**3,
         "runtime_target_count": len(runtimes.targets),
         "runtime_api_token_configured": bool(settings.runtime_api_token),
+        "download_window": downloads.schedule(),
     }
 
 
@@ -298,8 +362,8 @@ def auth_status(request: Request) -> dict:
 
 @app.post("/api/auth/setup", status_code=201)
 def setup_account(payload: SetupRequest, response: Response) -> dict:
-    if not settings.accounts_enabled:
-        raise HTTPException(status_code=409, detail="Accounts are disabled.")
+    if settings.effective_auth_mode != "local":
+        raise HTTPException(status_code=409, detail="Local account setup is unavailable.")
     if not auth.setup_required():
         raise HTTPException(status_code=409, detail="The owner account already exists.")
     try:
@@ -313,8 +377,8 @@ def setup_account(payload: SetupRequest, response: Response) -> dict:
 
 @app.post("/api/auth/login")
 def login(payload: CredentialsRequest, request: Request, response: Response) -> dict:
-    if not settings.accounts_enabled:
-        raise HTTPException(status_code=409, detail="Accounts are disabled.")
+    if settings.effective_auth_mode != "local":
+        raise HTTPException(status_code=409, detail="Local sign-in is unavailable.")
     client = request.client.host if request.client else "unknown"
     try:
         user = auth.authenticate(
@@ -330,11 +394,64 @@ def login(payload: CredentialsRequest, request: Request, response: Response) -> 
     return auth_payload({"user": public_user, "csrf_token": csrf_token})
 
 
+@app.get("/api/auth/oidc/login")
+async def oidc_login(return_to: str = Query(default="/", max_length=500)) -> RedirectResponse:
+    if settings.effective_auth_mode != "oidc":
+        raise HTTPException(status_code=404, detail="OIDC sign-in is not configured.")
+    try:
+        location = await oidc.authorization_url(return_to)
+    except Exception as error:
+        raise HTTPException(status_code=502, detail="Unable to contact Pocket ID.") from error
+    return RedirectResponse(location, status_code=302)
+
+
+@app.get("/api/auth/oidc/callback")
+async def oidc_callback(
+    code: str = Query(default="", max_length=4000),
+    state: str = Query(default="", max_length=500),
+    error: str = Query(default="", max_length=200),
+    error_description: str = Query(default="", max_length=500),
+) -> RedirectResponse:
+    if settings.effective_auth_mode != "oidc":
+        raise HTTPException(status_code=404, detail="OIDC sign-in is not configured.")
+    if error:
+        message = error_description or error.replace("_", " ")
+        return RedirectResponse(
+            f"{settings.app_base_url}/?{urlencode({'auth_error': message[:240]})}",
+            status_code=302,
+        )
+    try:
+        user, return_to = await oidc.authenticate_callback(code, state)
+        raw_token, _ = auth.create_session(user["id"])
+    except PermissionError as auth_error:
+        message = str(auth_error)
+        return RedirectResponse(
+            f"{settings.app_base_url}/?{urlencode({'auth_error': message[:240]})}",
+            status_code=302,
+        )
+    except Exception:
+        message = "Pocket ID sign-in could not be completed. Start a new sign-in and try again."
+        return RedirectResponse(
+            f"{settings.app_base_url}/?{urlencode({'auth_error': message[:240]})}",
+            status_code=302,
+        )
+    response = RedirectResponse(
+        f"{settings.app_base_url}{return_to}", status_code=302
+    )
+    set_session_cookie(response, raw_token)
+    return response
+
+
 @app.post("/api/auth/logout")
-def logout(request: Request, response: Response, _: WriteUser) -> dict:
+async def logout(request: Request, response: Response, _: WriteUser) -> dict:
     auth.revoke(request.cookies.get(auth.cookie_name))
     response.delete_cookie(auth.cookie_name, path="/")
-    return {"status": "signed_out"}
+    logout_url = (
+        await oidc.logout_url()
+        if settings.effective_auth_mode == "oidc"
+        else None
+    )
+    return {"status": "signed_out", "logout_url": logout_url}
 
 
 @app.get("/api/users")
@@ -346,6 +463,8 @@ def list_users(user: CurrentUser) -> dict:
 
 @app.post("/api/users", status_code=201)
 def create_user(payload: CreateUserRequest, _: AdminUser) -> dict:
+    if settings.effective_auth_mode != "local":
+        raise HTTPException(status_code=409, detail="Users are provisioned by Pocket ID.")
     try:
         return auth.create_user(
             payload.username, payload.display_name, payload.password, role="member"
@@ -364,10 +483,10 @@ def change_password(
     payload: PasswordChangeRequest, request: Request, user: WriteUser
 ) -> dict:
     raw_token = request.cookies.get(auth.cookie_name)
-    if not raw_token or not settings.accounts_enabled:
+    if not raw_token or settings.effective_auth_mode != "local":
         raise HTTPException(
             status_code=409,
-            detail="Password changes are unavailable when accounts are disabled.",
+            detail="Password changes are only available for local accounts.",
         )
     try:
         auth.change_password(
@@ -376,6 +495,83 @@ def change_password(
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     return {"status": "password_changed"}
+
+
+def hardware_component_records(
+    rig_id: str, payload: HardwareRigRequest, timestamp: str
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": uuid.uuid4().hex,
+            "rig_id": rig_id,
+            "kind": component.kind,
+            "vendor": component.vendor.strip(),
+            "model": component.model.strip(),
+            "memory_bytes": component.memory_bytes,
+            "quantity": component.quantity,
+            "created_at": timestamp,
+            "updated_at": timestamp,
+        }
+        for component in payload.components
+    ]
+
+
+@app.get("/api/hardware/rigs")
+def list_hardware_rigs(user: CurrentUser) -> dict:
+    return {"items": database.list_hardware_rigs(user["id"])}
+
+
+@app.post("/api/hardware/rigs", status_code=201)
+def create_hardware_rig(payload: HardwareRigRequest, user: WriteUser) -> dict:
+    timestamp = utc_iso()
+    rig_id = uuid.uuid4().hex
+    try:
+        rig = database.create_hardware_rig(
+            {
+                "id": rig_id,
+                "user_id": user["id"],
+                "name": payload.name,
+                "notes": payload.notes.strip(),
+                "is_primary": payload.is_primary,
+                "created_at": timestamp,
+                "updated_at": timestamp,
+            },
+            hardware_component_records(rig_id, payload, timestamp),
+        )
+    except INTEGRITY_ERRORS as error:
+        raise HTTPException(status_code=409, detail="A rig with that name already exists.") from error
+    return rig
+
+
+@app.put("/api/hardware/rigs/{rig_id}")
+def update_hardware_rig(
+    rig_id: str, payload: HardwareRigRequest, user: WriteUser
+) -> dict:
+    timestamp = utc_iso()
+    try:
+        rig = database.update_hardware_rig(
+            rig_id,
+            user["id"],
+            {
+                "name": payload.name,
+                "notes": payload.notes.strip(),
+                "is_primary": payload.is_primary,
+                "updated_at": timestamp,
+            },
+            hardware_component_records(rig_id, payload, timestamp),
+        )
+    except INTEGRITY_ERRORS as error:
+        raise HTTPException(status_code=409, detail="A rig with that name already exists.") from error
+    if not rig:
+        raise HTTPException(status_code=404, detail="Hardware rig was not found.")
+    return rig
+
+
+@app.delete("/api/hardware/rigs/{rig_id}")
+def delete_hardware_rig(rig_id: str, user: WriteUser) -> dict:
+    if not database.delete_hardware_rig(rig_id, user["id"]):
+        raise HTTPException(status_code=404, detail="Hardware rig was not found.")
+    return {"status": "deleted"}
 
 
 @app.get("/api/hub/models")
@@ -456,6 +652,11 @@ async def hub_model(repo_id: str, user: CurrentUser, revision: str = "main") -> 
         )
         details["local"] = database.get_local_model(validated) is not None
         details["saved"] = validated in database.saved_repo_ids(user["id"])
+        rigs = database.list_hardware_rigs(user["id"])
+        details["weight_groups"] = evaluate_weight_groups(
+            details.get("weight_groups") or [], rigs
+        )
+        details["hardware_rig_count"] = len(rigs)
         return details
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
@@ -478,9 +679,33 @@ def list_downloads(user: CurrentUser) -> dict:
     return {
         "items": items,
         "active": sum(
-            item["status"] in {"queued", "preparing", "downloading"} for item in items
+            item["status"]
+            in {"queued", "scheduled", "preparing", "downloading", "finalizing", "paused"}
+            for item in items
         ),
     }
+
+
+@app.get("/api/download-settings")
+def download_settings(_: CurrentUser) -> dict:
+    return downloads.schedule()
+
+
+@app.patch("/api/download-settings")
+def update_download_settings(payload: DownloadScheduleRequest, user: AdminUser) -> dict:
+    try:
+        validated = validate_schedule(payload.model_dump())
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    updated = database.update_download_schedule(
+        {
+            **validated,
+            "updated_by": user["id"],
+            "updated_at": utc_iso(),
+        }
+    )
+    downloads.notify_schedule_changed()
+    return {**updated, "window_open": downloads.schedule()["window_open"]}
 
 
 @app.get("/api/downloads/{download_id}")
@@ -506,6 +731,7 @@ def start_download(payload: DownloadRequest, user: WriteUser) -> dict:
             payload.ignore_patterns,
             payload.mode,
             user_id=user["id"],
+            selection=payload.selection.model_dump() if payload.selection else None,
         )
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
@@ -521,6 +747,39 @@ def cancel_download(download_id: str, user: WriteUser) -> dict:
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
     return download
+
+
+@app.post("/api/downloads/{download_id}/pause")
+def pause_download(download_id: str, user: WriteUser) -> dict:
+    existing = database.get_download(download_id)
+    if not existing or not can_access_download(existing, user):
+        raise HTTPException(status_code=404, detail="Download not found")
+    try:
+        return downloads.pause(download_id) or existing
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@app.post("/api/downloads/{download_id}/resume")
+def resume_download(download_id: str, user: WriteUser) -> dict:
+    existing = database.get_download(download_id)
+    if not existing or not can_access_download(existing, user):
+        raise HTTPException(status_code=404, detail="Download not found")
+    try:
+        return downloads.resume(download_id) or existing
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@app.delete("/api/downloads/{download_id}/data")
+def cleanup_download(download_id: str, user: WriteUser) -> dict:
+    existing = database.get_download(download_id)
+    if not existing or not can_access_download(existing, user):
+        raise HTTPException(status_code=404, detail="Download not found")
+    try:
+        return downloads.cleanup(download_id) or existing
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
 
 
 @app.get("/api/local-models")

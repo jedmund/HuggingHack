@@ -1,25 +1,40 @@
+import asyncio
+import hashlib
 import json
 import sqlite3
 import time
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
+from authlib.jose import JsonWebKey, jwt
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 
-from app.auth import AuthService, verify_password
+from app.auth import AuthService, oidc_username, verify_password
 from app.config import Settings, repository_path, validate_repo_id
 from app.database import Database, _postgres_query
-from app.downloads import DownloadManager
-from app.hub_service import HubService, parse_gguf_range, validate_gguf_filename
+from app.download_schedule import validate_schedule, window_is_open
+from app.downloads import DownloadManager, resolve_selection
+from app.hub_service import HubService, parse_gguf_range, validate_gguf_filename, weight_groups
+from app.hardware import evaluate_weight, evaluate_weight_groups
 from app.indexer import LocalModelIndexer
+from app.oidc import OIDCService
 from app.runtimes import (
     RuntimeManager,
     ollama_files,
     parse_runtime_targets,
     remote_model_path,
 )
-from app.storage import FilesystemModelStorage, S3ModelStorage, inject_delete_objects_md5
+from app.storage import (
+    FilesystemModelStorage,
+    S3ModelStorage,
+    inject_delete_objects_md5,
+    s3_client_config_options,
+)
 from app.uploads import UploadManager, validate_upload_path
 from app.vllm_agent import AgentSettings, VllmProcessManager
 
@@ -90,6 +105,56 @@ def test_delete_objects_md5_is_injected_without_overwriting_existing_header():
     assert request.headers["Content-MD5"] == "provided-by-botocore"
 
 
+def test_garage_storage_uses_compatible_s3_defaults(tmp_path: Path):
+    settings = Settings(
+        model_storage=(tmp_path / "models").resolve(),
+        data_dir=(tmp_path / "data").resolve(),
+        model_storage_backend="s3",
+        s3_provider="garage",
+        s3_bucket="model-bucket",
+        s3_endpoint_url="http://garage:3900",
+    )
+
+    assert settings.effective_s3_region == "garage"
+    assert settings.effective_s3_addressing_style == "path"
+    assert s3_client_config_options(settings) == {
+        "connect_timeout": 3,
+        "read_timeout": 10,
+        "retries": {"max_attempts": 5, "mode": "standard"},
+        "s3": {"addressing_style": "path"},
+        "signature_version": "s3v4",
+        "request_checksum_calculation": "when_required",
+        "response_checksum_validation": "when_required",
+    }
+
+    health = S3ModelStorage(settings, client=FakeS3Client()).health()
+    assert health["provider"] == "garage"
+    assert health["connected"] is True
+
+
+def test_garage_storage_requires_endpoint_and_rejects_storage_class(tmp_path: Path):
+    options = {
+        "model_storage": (tmp_path / "models").resolve(),
+        "data_dir": (tmp_path / "data").resolve(),
+        "model_storage_backend": "s3",
+        "s3_provider": "garage",
+        "s3_bucket": "model-bucket",
+    }
+
+    with pytest.raises(ValueError, match="S3_ENDPOINT_URL"):
+        S3ModelStorage(Settings(**options), client=FakeS3Client())
+
+    with pytest.raises(ValueError, match="S3_STORAGE_CLASS"):
+        S3ModelStorage(
+            Settings(
+                **options,
+                s3_endpoint_url="http://garage:3900",
+                s3_storage_class="STANDARD_IA",
+            ),
+            client=FakeS3Client(),
+        )
+
+
 def test_repo_id_validation_rejects_path_traversal():
     assert validate_repo_id("google/gemma-2b") == "google/gemma-2b"
     for value in ("../etc", "owner/../../secret", "single-name", "/absolute/model", "owner/model/extra"):
@@ -106,6 +171,55 @@ def test_gguf_range_validation_is_bounded_and_path_safe():
     for filename in ("../model.gguf", "/model.gguf", "folder\\..\\model.gguf", "model.bin"):
         with pytest.raises(ValueError):
             validate_gguf_filename(filename)
+
+
+def test_weight_folders_resolve_all_shards_and_default_metadata():
+    files = [
+        {"path": "UD-Q8_K_XL/model-00001-of-00002.gguf", "size": 10},
+        {"path": "UD-Q8_K_XL/model-00002-of-00002.gguf", "size": 11},
+        {"path": "Q4_K_M/model.gguf", "size": 6},
+        {"path": "config.json", "size": 2},
+    ]
+    groups = weight_groups(files, "gguf", ["gguf"])
+    q8 = next(group for group in groups if group["label"] == "UD-Q8_K_XL")
+    assert q8["total_bytes"] == 21
+    assert q8["selection"] == [{"path": "UD-Q8_K_XL", "kind": "folder"}]
+
+    allowed, ignored, selected = resolve_selection(
+        {"files": files},
+        "selection",
+        [],
+        [],
+        {"paths": q8["selection"], "include_metadata": True},
+    )
+    assert ignored == []
+    assert "UD-Q8_K_XL/*" in allowed
+    assert {item["path"] for item in selected} == {
+        "UD-Q8_K_XL/model-00001-of-00002.gguf",
+        "UD-Q8_K_XL/model-00002-of-00002.gguf",
+        "config.json",
+    }
+
+
+def test_weekly_download_window_handles_overnight_ranges():
+    schedule = validate_schedule(
+        {
+            "enabled": True,
+            "timezone": "America/Los_Angeles",
+            "weekdays": [0],
+            "start_time": "22:00",
+            "end_time": "06:00",
+        }
+    )
+    monday_2230 = datetime(2026, 8, 4, 5, 30, tzinfo=timezone.utc)
+    tuesday_0530 = datetime(2026, 8, 4, 12, 30, tzinfo=timezone.utc)
+    tuesday_0630 = datetime(2026, 8, 4, 13, 30, tzinfo=timezone.utc)
+    assert window_is_open(schedule, monday_2230) is True
+    assert window_is_open(schedule, tuesday_0530) is True
+    assert window_is_open(schedule, tuesday_0630) is False
+
+    with pytest.raises(ValueError, match="must differ"):
+        validate_schedule({**schedule, "start_time": "06:00", "end_time": "06:00"})
     for range_header in (
         None,
         "bytes=0-1,3-4",
@@ -313,6 +427,59 @@ def test_cancelled_download_keeps_partial_files_and_resume_metadata(tmp_path: Pa
     assert manifest["status"] == "cancelled"
 
 
+def test_cleanup_removes_only_staging_and_keeps_completed_model(tmp_path: Path):
+    storage = (tmp_path / "models").resolve()
+    data = (tmp_path / "data").resolve()
+    target = storage / "acme" / "model"
+    staging = storage / ".hugginghack-downloads" / "paused-job"
+    target.mkdir(parents=True)
+    staging.mkdir(parents=True)
+    (target / "model.gguf").write_bytes(b"complete")
+    (target / ".hugginghack.json").write_text(
+        json.dumps({"status": "complete", "repo_id": "acme/model"}),
+        encoding="utf-8",
+    )
+    (staging / "model.gguf.incomplete").write_bytes(b"partial")
+    (staging / ".hugginghack.json").write_text(
+        json.dumps({"status": "paused", "repo_id": "acme/model"}),
+        encoding="utf-8",
+    )
+    settings = Settings(model_storage=storage, data_dir=data)
+    database = Database(settings.database_path)
+    database.initialize()
+    created = "2026-07-23T12:00:00+00:00"
+    database.create_download(
+        {
+            "id": "paused-job",
+            "repo_id": "acme/model",
+            "revision": "main",
+            "status": "paused",
+            "total_bytes": 100,
+            "downloaded_bytes": 7,
+            "progress": 7,
+            "speed_bps": 0,
+            "error": None,
+            "target_path": str(target),
+            "staging_path": str(staging),
+            "payload_json": json.dumps({"mode": "full"}),
+            "metadata_json": "{}",
+            "created_at": created,
+            "updated_at": created,
+            "completed_at": None,
+        }
+    )
+    manager = DownloadManager(settings, database, object(), object())
+    cleaned = manager.cleanup("paused-job")
+    manager.shutdown()
+
+    assert cleaned is not None
+    assert cleaned["status"] == "cancelled"
+    assert cleaned["cleaned_at"] is not None
+    assert cleaned["downloaded_bytes"] == 0
+    assert not staging.exists()
+    assert (target / "model.gguf").read_bytes() == b"complete"
+
+
 def test_completed_download_syncs_durable_storage_before_indexing(tmp_path: Path):
     storage = (tmp_path / "models").resolve()
     settings = Settings(
@@ -451,6 +618,304 @@ def test_accounts_disabled_keeps_single_user_compatibility(tmp_path: Path):
     assert session["user"]["role"] == "admin"
     assert "password_hash" not in session["user"]
     assert service.verify_csrf(session, None) is True
+
+
+def test_auth_mode_keeps_legacy_accounts_setting_and_validates_oidc(tmp_path: Path):
+    disabled = Settings(
+        model_storage=(tmp_path / "models").resolve(),
+        data_dir=(tmp_path / "data").resolve(),
+        accounts_enabled=False,
+    )
+    assert disabled.effective_auth_mode == "disabled"
+
+    oidc_settings = Settings(
+        model_storage=(tmp_path / "models").resolve(),
+        data_dir=(tmp_path / "data").resolve(),
+        auth_mode="oidc",
+        app_base_url="https://models.example.com",
+        oidc_issuer="https://id.example.com",
+        oidc_client_id="client-id",
+        oidc_client_secret="client-secret",
+    )
+    oidc_settings.validate_auth()
+    assert oidc_settings.oidc_redirect_uri == (
+        "https://models.example.com/api/auth/oidc/callback"
+    )
+    assert oidc_settings.effective_session_ttl_hours == 12
+
+    with pytest.raises(ValueError, match="requires"):
+        Settings(auth_mode="oidc").validate_auth()
+
+
+def test_oidc_provisioning_links_username_and_maps_groups(tmp_path: Path):
+    settings = Settings(
+        model_storage=(tmp_path / "models").resolve(),
+        data_dir=(tmp_path / "data").resolve(),
+        auth_mode="oidc",
+        oidc_allowed_groups=("model-users", "model-admins"),
+        oidc_admin_groups=("model-admins",),
+    )
+    database = Database(settings.database_path)
+    database.initialize()
+    service = AuthService(settings, database)
+    local = service.create_user("justin", "Local owner", "correct horse battery", "admin")
+
+    linked = service.provision_oidc_user(
+        {
+            "iss": "https://id.example.com",
+            "sub": "pocket-user-1",
+            "preferred_username": "Justin",
+            "name": "Justin from Pocket ID",
+            "email": "justin@example.com",
+            "groups": ["model-users", "model-admins"],
+        }
+    )
+    assert linked["id"] == local["id"]
+    assert linked["display_name"] == "Justin from Pocket ID"
+    assert linked["role"] == "admin"
+
+    distinct = service.provision_oidc_user(
+        {
+            "iss": "https://id.example.com",
+            "sub": "pocket-user-2",
+            "preferred_username": "justin",
+            "groups": ["model-users"],
+        }
+    )
+    assert distinct["id"] != local["id"]
+    assert distinct["username"] == "justin-2"
+    assert distinct["role"] == "member"
+    assert oidc_username({"sub": "abc", "preferred_username": "A User@example"}) == "a-user-example"
+
+    with pytest.raises(PermissionError, match="groups"):
+        service.provision_oidc_user(
+            {
+                "iss": "https://id.example.com",
+                "sub": "blocked-user",
+                "preferred_username": "blocked",
+                "groups": ["unrelated"],
+            }
+        )
+
+
+def test_oidc_login_state_is_single_use(tmp_path: Path):
+    database = Database((tmp_path / "data.sqlite3").resolve())
+    database.initialize()
+    database.create_oidc_login_state(
+        {
+            "state_hash": "state-hash",
+            "nonce": "nonce",
+            "code_verifier": "verifier",
+            "return_to": "/downloads",
+            "created_at": "2026-07-31T12:00:00+00:00",
+            "expires_at": "2026-07-31T12:10:00+00:00",
+        }
+    )
+    assert database.consume_oidc_login_state("state-hash")["nonce"] == "nonce"
+    assert database.consume_oidc_login_state("state-hash") is None
+
+
+def test_oidc_authorization_uses_pkce_and_server_side_state(tmp_path: Path):
+    settings = Settings(
+        model_storage=(tmp_path / "models").resolve(),
+        data_dir=(tmp_path / "data").resolve(),
+        auth_mode="oidc",
+        app_base_url="https://models.example.com",
+        oidc_issuer="https://id.example.com",
+        oidc_client_id="client-id",
+        oidc_client_secret="client-secret",
+    )
+    database = Database(settings.database_path)
+    database.initialize()
+    service = OIDCService(settings, database, AuthService(settings, database))
+
+    async def run_authorization():
+        async def metadata():
+            return {
+                "issuer": settings.oidc_issuer,
+                "authorization_endpoint": "https://id.example.com/authorize",
+                "token_endpoint": "https://id.example.com/token",
+                "jwks_uri": "https://id.example.com/jwks",
+            }
+
+        service.metadata = metadata  # type: ignore[method-assign]
+        url = await service.authorization_url("/downloads")
+        query = parse_qs(urlparse(url).query)
+        assert query["code_challenge_method"] == ["S256"]
+        assert query["nonce"]
+        state_hash = hashlib.sha256(query["state"][0].encode()).hexdigest()
+        record = database.consume_oidc_login_state(state_hash)
+        assert record["return_to"] == "/downloads"
+        assert record["nonce"] == query["nonce"][0]
+        await service.close()
+
+    asyncio.run(run_authorization())
+
+
+def test_oidc_id_token_validation_checks_signature_audience_and_nonce(tmp_path: Path):
+    settings = Settings(
+        model_storage=(tmp_path / "models").resolve(),
+        data_dir=(tmp_path / "data").resolve(),
+        auth_mode="oidc",
+        app_base_url="https://models.example.com",
+        oidc_issuer="https://id.example.com",
+        oidc_client_id="client-id",
+        oidc_client_secret="client-secret",
+    )
+    database = Database(settings.database_path)
+    database.initialize()
+    service = OIDCService(settings, database, AuthService(settings, database))
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    public_pem = private_key.public_key().public_bytes(
+        serialization.Encoding.PEM,
+        serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    private_pem = private_key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    )
+    public_jwk = JsonWebKey.import_key(public_pem).as_dict()
+    public_jwk.update({"kid": "test-key", "use": "sig", "alg": "RS256"})
+    now = datetime.now(timezone.utc)
+    encoded = jwt.encode(
+        {"alg": "RS256", "kid": "test-key"},
+        {
+            "iss": settings.oidc_issuer,
+            "sub": "pocket-user",
+            "aud": settings.oidc_client_id,
+            "exp": int((now + timedelta(minutes=5)).timestamp()),
+            "iat": int(now.timestamp()),
+            "nonce": "expected-nonce",
+        },
+        private_pem,
+    )
+
+    async def run_validation():
+        await service._client.aclose()
+        service._client = httpx.AsyncClient(
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(200, json={"keys": [public_jwk]})
+            )
+        )
+        metadata = {
+            "jwks_uri": "https://id.example.com/jwks",
+            "id_token_signing_alg_values_supported": ["RS256", "none"],
+        }
+        claims = await service._validate_id_token(
+            encoded.decode(), metadata, "expected-nonce", None
+        )
+        assert claims["sub"] == "pocket-user"
+        with pytest.raises(Exception):
+            await service._validate_id_token(
+                encoded.decode(), metadata, "wrong-nonce", None
+            )
+        await service.close()
+
+    asyncio.run(run_validation())
+
+
+def test_hardware_rigs_are_private_and_keep_one_primary(tmp_path: Path):
+    database = Database((tmp_path / "hardware.sqlite3").resolve())
+    database.initialize()
+    service = AuthService(Settings(), database)
+    owner = service.create_user("owner", "Owner", "correct horse battery", "admin")
+    member = service.create_user("member", "Member", "another secure phrase", "member")
+    timestamp = "2026-07-31T12:00:00+00:00"
+
+    first = database.create_hardware_rig(
+        {
+            "id": "rig-one",
+            "user_id": owner["id"],
+            "name": "Mac Studio",
+            "notes": "Desk",
+            "is_primary": False,
+            "created_at": timestamp,
+            "updated_at": timestamp,
+        },
+        [
+            {
+                "id": "component-one",
+                "rig_id": "rig-one",
+                "kind": "apple_silicon",
+                "vendor": "Apple",
+                "model": "M4 Max",
+                "memory_bytes": 64 * 1024**3,
+                "quantity": 1,
+                "created_at": timestamp,
+                "updated_at": timestamp,
+            }
+        ],
+    )
+    assert first["is_primary"] is True
+    assert first["components"][0]["memory_bytes"] == 64 * 1024**3
+    assert database.list_hardware_rigs(member["id"]) == []
+
+    second = database.create_hardware_rig(
+        {
+            "id": "rig-two",
+            "user_id": owner["id"],
+            "name": "GPU server",
+            "notes": "Rack",
+            "is_primary": True,
+            "created_at": "2026-07-31T12:01:00+00:00",
+            "updated_at": timestamp,
+        },
+        [],
+    )
+    assert second["is_primary"] is True
+    assert database.get_hardware_rig("rig-one", owner["id"])["is_primary"] is False
+    assert database.get_hardware_rig("rig-one", member["id"]) is None
+
+    assert database.delete_hardware_rig("rig-two", member["id"]) is False
+    assert database.delete_hardware_rig("rig-two", owner["id"]) is True
+    assert database.get_hardware_rig("rig-one", owner["id"])["is_primary"] is True
+
+
+def test_hardware_compatibility_applies_twenty_percent_headroom():
+    gib = 1024**3
+    gpu_rig = {
+        "id": "gpu-rig",
+        "name": "GPU rig",
+        "is_primary": True,
+        "components": [
+            {
+                "kind": "gpu",
+                "memory_bytes": 10 * gib,
+                "quantity": 1,
+            }
+        ],
+    }
+    gguf = {"id": "q8", "format": "gguf", "total_bytes": 9 * gib}
+    result = evaluate_weight(gguf, gpu_rig)
+    assert result["status"] == "tight"
+    assert result["target"] == "aggregate GPU VRAM"
+    assert result["required_bytes"] == 11_596_411_700
+    assert result["headroom_percent"] == 20
+
+    apple_rig = {
+        "id": "mac",
+        "name": "Mac",
+        "components": [
+            {
+                "kind": "apple_silicon",
+                "memory_bytes": 16 * gib,
+                "quantity": 1,
+            }
+        ],
+    }
+    groups = evaluate_weight_groups(
+        [{"id": "mlx", "format": "mlx", "total_bytes": 10 * gib}],
+        [apple_rig],
+    )
+    assert groups[0]["compatibility"][0]["status"] == "fits"
+    assert groups[0]["compatibility"][0]["target"] == "Apple unified memory"
+
+    incompatible = evaluate_weight(
+        {"id": "mlx", "format": "mlx", "total_bytes": gib}, gpu_rig
+    )
+    assert incompatible["status"] == "unknown"
+    assert incompatible["available_bytes"] == 0
 
 
 def test_database_migrates_existing_download_history(tmp_path: Path):

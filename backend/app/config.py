@@ -24,6 +24,14 @@ def _boolean(name: str, default: bool) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _csv(name: str, default: str = "") -> tuple[str, ...]:
+    return tuple(
+        item.strip()
+        for item in os.getenv(name, default).split(",")
+        if item.strip()
+    )
+
+
 @dataclass(frozen=True)
 class Settings:
     app_name: str = os.getenv("APP_NAME", "HuggingHack")
@@ -39,14 +47,35 @@ class Settings:
     hf_token: str | None = os.getenv("HF_TOKEN") or None
     max_concurrent_downloads: int = _positive_int("MAX_CONCURRENT_DOWNLOADS", 2, 8)
     download_workers_per_job: int = _positive_int("DOWNLOAD_WORKERS_PER_JOB", 4, 16)
+    auth_mode: str | None = field(
+        default=(os.getenv("AUTH_MODE") or "").strip().lower() or None
+    )
     accounts_enabled: bool = _boolean("ACCOUNTS_ENABLED", True)
     secure_cookies: bool = _boolean("SECURE_COOKIES", False)
     session_ttl_hours: int = _positive_int("SESSION_TTL_HOURS", 720, 8760)
+    oidc_session_ttl_hours: int = _positive_int("OIDC_SESSION_TTL_HOURS", 12, 168)
+    app_base_url: str = os.getenv("APP_BASE_URL", "").strip().rstrip("/")
+    oidc_provider_name: str = os.getenv("OIDC_PROVIDER_NAME", "Pocket ID").strip()
+    oidc_issuer: str = os.getenv("OIDC_ISSUER", "").strip().rstrip("/")
+    oidc_client_id: str = os.getenv("OIDC_CLIENT_ID", "").strip()
+    oidc_client_secret: str = field(
+        default=os.getenv("OIDC_CLIENT_SECRET", "").strip(), repr=False
+    )
+    oidc_scopes: tuple[str, ...] = field(
+        default_factory=lambda: _csv("OIDC_SCOPES", "openid,profile,email,groups")
+    )
+    oidc_allowed_groups: tuple[str, ...] = field(
+        default_factory=lambda: _csv("OIDC_ALLOWED_GROUPS")
+    )
+    oidc_admin_groups: tuple[str, ...] = field(
+        default_factory=lambda: _csv("OIDC_ADMIN_GROUPS")
+    )
     upload_chunk_mb: int = _positive_int("UPLOAD_CHUNK_MB", 8, 64)
     max_upload_size_gb: int = _positive_int("MAX_UPLOAD_SIZE_GB", 1024, 16384)
     runtime_targets_json: str = os.getenv("RUNTIME_TARGETS_JSON", "[]")
     runtime_workers: int = _positive_int("RUNTIME_WORKERS", 2, 8)
     runtime_api_token: str | None = os.getenv("RUNTIME_API_TOKEN") or None
+    s3_provider: str = os.getenv("S3_PROVIDER", "auto").strip().lower()
     s3_bucket: str | None = os.getenv("S3_BUCKET") or None
     s3_prefix: str = os.getenv("S3_PREFIX", "models").strip().strip("/")
     s3_endpoint_url: str | None = os.getenv("S3_ENDPOINT_URL") or None
@@ -73,14 +102,78 @@ class Settings:
     def hub_cache_path(self) -> Path:
         return self.data_dir / "hub-cache"
 
+    @property
+    def download_staging_path(self) -> Path:
+        return self.model_storage / ".hugginghack-downloads"
+
+    @property
+    def effective_auth_mode(self) -> str:
+        if self.auth_mode is not None:
+            return self.auth_mode
+        return "local" if self.accounts_enabled else "disabled"
+
+    @property
+    def effective_session_ttl_hours(self) -> int:
+        if self.effective_auth_mode == "oidc":
+            return self.oidc_session_ttl_hours
+        return self.session_ttl_hours
+
+    @property
+    def oidc_redirect_uri(self) -> str:
+        return f"{self.app_base_url}/api/auth/oidc/callback"
+
+    def validate_auth(self) -> None:
+        mode = self.effective_auth_mode
+        if mode not in {"local", "oidc", "disabled"}:
+            raise ValueError("AUTH_MODE must be local, oidc, or disabled.")
+        if mode != "oidc":
+            return
+        missing = [
+            name
+            for name, value in (
+                ("APP_BASE_URL", self.app_base_url),
+                ("OIDC_ISSUER", self.oidc_issuer),
+                ("OIDC_CLIENT_ID", self.oidc_client_id),
+                ("OIDC_CLIENT_SECRET", self.oidc_client_secret),
+            )
+            if not value
+        ]
+        if missing:
+            raise ValueError(
+                f"OIDC authentication requires {', '.join(missing)}."
+            )
+        if "openid" not in self.oidc_scopes:
+            raise ValueError("OIDC_SCOPES must include openid.")
+        for name, value in (
+            ("APP_BASE_URL", self.app_base_url),
+            ("OIDC_ISSUER", self.oidc_issuer),
+        ):
+            if not value.startswith("https://") and not value.startswith(
+                ("http://localhost", "http://127.0.0.1", "http://[::1]")
+            ):
+                raise ValueError(f"{name} must use HTTPS except on localhost.")
+
     def ensure_directories(self) -> None:
         self.model_storage.mkdir(parents=True, exist_ok=True)
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.hub_cache_path.mkdir(parents=True, exist_ok=True)
+        self.download_staging_path.mkdir(parents=True, exist_ok=True)
 
     @property
     def s3_enabled(self) -> bool:
         return self.model_storage_backend == "s3"
+
+    @property
+    def effective_s3_region(self) -> str | None:
+        if self.s3_region:
+            return self.s3_region
+        return "garage" if self.s3_provider == "garage" else None
+
+    @property
+    def effective_s3_addressing_style(self) -> str:
+        if self.s3_provider == "garage" and self.s3_addressing_style == "auto":
+            return "path"
+        return self.s3_addressing_style
 
 
 settings = Settings()
