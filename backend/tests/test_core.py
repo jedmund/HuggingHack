@@ -1,6 +1,7 @@
 import json
 import sqlite3
 import time
+from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 
@@ -10,8 +11,9 @@ import pytest
 from app.auth import AuthService, verify_password
 from app.config import Settings, repository_path, validate_repo_id
 from app.database import Database, _postgres_query
-from app.downloads import DownloadManager
-from app.hub_service import HubService, parse_gguf_range, validate_gguf_filename
+from app.download_schedule import validate_schedule, window_is_open
+from app.downloads import DownloadManager, resolve_selection
+from app.hub_service import HubService, parse_gguf_range, validate_gguf_filename, weight_groups
 from app.indexer import LocalModelIndexer
 from app.runtimes import (
     RuntimeManager,
@@ -106,6 +108,55 @@ def test_gguf_range_validation_is_bounded_and_path_safe():
     for filename in ("../model.gguf", "/model.gguf", "folder\\..\\model.gguf", "model.bin"):
         with pytest.raises(ValueError):
             validate_gguf_filename(filename)
+
+
+def test_weight_folders_resolve_all_shards_and_default_metadata():
+    files = [
+        {"path": "UD-Q8_K_XL/model-00001-of-00002.gguf", "size": 10},
+        {"path": "UD-Q8_K_XL/model-00002-of-00002.gguf", "size": 11},
+        {"path": "Q4_K_M/model.gguf", "size": 6},
+        {"path": "config.json", "size": 2},
+    ]
+    groups = weight_groups(files, "gguf", ["gguf"])
+    q8 = next(group for group in groups if group["label"] == "UD-Q8_K_XL")
+    assert q8["total_bytes"] == 21
+    assert q8["selection"] == [{"path": "UD-Q8_K_XL", "kind": "folder"}]
+
+    allowed, ignored, selected = resolve_selection(
+        {"files": files},
+        "selection",
+        [],
+        [],
+        {"paths": q8["selection"], "include_metadata": True},
+    )
+    assert ignored == []
+    assert "UD-Q8_K_XL/*" in allowed
+    assert {item["path"] for item in selected} == {
+        "UD-Q8_K_XL/model-00001-of-00002.gguf",
+        "UD-Q8_K_XL/model-00002-of-00002.gguf",
+        "config.json",
+    }
+
+
+def test_weekly_download_window_handles_overnight_ranges():
+    schedule = validate_schedule(
+        {
+            "enabled": True,
+            "timezone": "America/Los_Angeles",
+            "weekdays": [0],
+            "start_time": "22:00",
+            "end_time": "06:00",
+        }
+    )
+    monday_2230 = datetime(2026, 8, 4, 5, 30, tzinfo=timezone.utc)
+    tuesday_0530 = datetime(2026, 8, 4, 12, 30, tzinfo=timezone.utc)
+    tuesday_0630 = datetime(2026, 8, 4, 13, 30, tzinfo=timezone.utc)
+    assert window_is_open(schedule, monday_2230) is True
+    assert window_is_open(schedule, tuesday_0530) is True
+    assert window_is_open(schedule, tuesday_0630) is False
+
+    with pytest.raises(ValueError, match="must differ"):
+        validate_schedule({**schedule, "start_time": "06:00", "end_time": "06:00"})
     for range_header in (
         None,
         "bytes=0-1,3-4",
@@ -311,6 +362,59 @@ def test_cancelled_download_keeps_partial_files_and_resume_metadata(tmp_path: Pa
     assert (target / "weights.safetensors.incomplete").is_file()
     manifest = json.loads((target / ".hugginghack.json").read_text(encoding="utf-8"))
     assert manifest["status"] == "cancelled"
+
+
+def test_cleanup_removes_only_staging_and_keeps_completed_model(tmp_path: Path):
+    storage = (tmp_path / "models").resolve()
+    data = (tmp_path / "data").resolve()
+    target = storage / "acme" / "model"
+    staging = storage / ".hugginghack-downloads" / "paused-job"
+    target.mkdir(parents=True)
+    staging.mkdir(parents=True)
+    (target / "model.gguf").write_bytes(b"complete")
+    (target / ".hugginghack.json").write_text(
+        json.dumps({"status": "complete", "repo_id": "acme/model"}),
+        encoding="utf-8",
+    )
+    (staging / "model.gguf.incomplete").write_bytes(b"partial")
+    (staging / ".hugginghack.json").write_text(
+        json.dumps({"status": "paused", "repo_id": "acme/model"}),
+        encoding="utf-8",
+    )
+    settings = Settings(model_storage=storage, data_dir=data)
+    database = Database(settings.database_path)
+    database.initialize()
+    created = "2026-07-23T12:00:00+00:00"
+    database.create_download(
+        {
+            "id": "paused-job",
+            "repo_id": "acme/model",
+            "revision": "main",
+            "status": "paused",
+            "total_bytes": 100,
+            "downloaded_bytes": 7,
+            "progress": 7,
+            "speed_bps": 0,
+            "error": None,
+            "target_path": str(target),
+            "staging_path": str(staging),
+            "payload_json": json.dumps({"mode": "full"}),
+            "metadata_json": "{}",
+            "created_at": created,
+            "updated_at": created,
+            "completed_at": None,
+        }
+    )
+    manager = DownloadManager(settings, database, object(), object())
+    cleaned = manager.cleanup("paused-job")
+    manager.shutdown()
+
+    assert cleaned is not None
+    assert cleaned["status"] == "cancelled"
+    assert cleaned["cleaned_at"] is not None
+    assert cleaned["downloaded_bytes"] == 0
+    assert not staging.exists()
+    assert (target / "model.gguf").read_bytes() == b"complete"
 
 
 def test_completed_download_syncs_durable_storage_before_indexing(tmp_path: Path):

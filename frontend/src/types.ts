@@ -30,6 +30,7 @@ export interface Health {
   max_upload_size_bytes: number
   runtime_target_count: number
   runtime_api_token_configured: boolean
+  download_window: DownloadSchedule
 }
 
 export interface User {
@@ -81,15 +82,41 @@ export interface HubModelDetails extends HubModel {
   security_status?: unknown
   source_url: string
   model_card?: string | null
+  weight_groups: WeightGroup[]
 }
 
-export type DownloadMode = 'full' | 'safetensors' | 'gguf' | 'metadata' | 'custom'
+export interface SelectionPath {
+  path: string
+  kind: 'file' | 'folder'
+}
+
+export interface WeightGroup {
+  id: string
+  label: string
+  format: 'gguf' | 'mlx'
+  files: string[]
+  total_bytes: number
+  selection: SelectionPath[]
+}
+
+export type DownloadMode = 'full' | 'safetensors' | 'gguf' | 'metadata' | 'custom' | 'selection'
+
+export interface DownloadSchedule {
+  enabled: boolean
+  timezone: string
+  weekdays: number[]
+  start_time: string
+  end_time: string
+  window_open: boolean
+  updated_by?: string | null
+  updated_at?: string | null
+}
 
 export interface DownloadJob {
   id: string
   repo_id: string
   revision: string
-  status: 'queued' | 'preparing' | 'downloading' | 'complete' | 'failed' | 'cancelled'
+  status: 'queued' | 'scheduled' | 'preparing' | 'downloading' | 'finalizing' | 'paused' | 'complete' | 'failed' | 'cancelled'
   total_bytes: number
   downloaded_bytes: number
   progress: number
@@ -100,11 +127,19 @@ export interface DownloadJob {
     allow_patterns?: string[]
     ignore_patterns?: string[]
     mode?: DownloadMode
+    selection?: {
+      paths: SelectionPath[]
+      include_metadata: boolean
+    } | null
   }
   metadata: Record<string, unknown>
   created_at: string
   updated_at: string
   completed_at?: string | null
+  resolved_revision?: string | null
+  staging_path?: string | null
+  pause_reason?: 'user' | 'window' | null
+  cleaned_at?: string | null
 }
 
 export interface LocalModel {

@@ -70,12 +70,17 @@ class _PostgresConnection:
 
 DOWNLOAD_FIELDS = {
     "status",
+    "resolved_revision",
     "total_bytes",
     "downloaded_bytes",
     "progress",
     "speed_bps",
     "error",
     "target_path",
+    "staging_path",
+    "pause_reason",
+    "cleaned_at",
+    "payload_json",
     "metadata_json",
     "updated_at",
     "completed_at",
@@ -166,11 +171,26 @@ class Database:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     completed_at TEXT,
-                    user_id TEXT REFERENCES users(id) ON DELETE SET NULL
+                    user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+                    resolved_revision TEXT,
+                    staging_path TEXT,
+                    pause_reason TEXT,
+                    cleaned_at TEXT
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_downloads_status
                     ON downloads(status, updated_at DESC);
+
+                CREATE TABLE IF NOT EXISTS download_schedule (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    enabled INTEGER NOT NULL DEFAULT 0,
+                    timezone TEXT NOT NULL DEFAULT 'UTC',
+                    weekdays_json TEXT NOT NULL DEFAULT '[]',
+                    start_time TEXT NOT NULL DEFAULT '00:00',
+                    end_time TEXT NOT NULL DEFAULT '06:00',
+                    updated_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+                    updated_at TEXT NOT NULL
+                );
 
                 CREATE TABLE IF NOT EXISTS local_models (
                     repo_id TEXT PRIMARY KEY,
@@ -282,6 +302,14 @@ class Database:
                     "ALTER TABLE downloads ADD COLUMN user_id TEXT "
                     "REFERENCES users(id) ON DELETE SET NULL"
                 )
+            for name in (
+                "resolved_revision",
+                "staging_path",
+                "pause_reason",
+                "cleaned_at",
+            ):
+                if name not in columns:
+                    connection.execute(f"ALTER TABLE downloads ADD COLUMN {name} TEXT")
             local_model_columns = self._column_names(connection, "local_models")
             if "storage_backend" not in local_model_columns:
                 connection.execute(
@@ -297,6 +325,15 @@ class Database:
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_downloads_user_created "
                 "ON downloads(user_id, created_at DESC)"
+            )
+            connection.execute(
+                """
+                INSERT INTO download_schedule (
+                    id, enabled, timezone, weekdays_json, start_time, end_time, updated_at
+                ) VALUES (1, 0, 'UTC', '[]', '00:00', '06:00', ?)
+                ON CONFLICT(id) DO NOTHING
+                """,
+                (datetime.now(timezone.utc).isoformat(),),
             )
             connection.execute(
                 "DELETE FROM sessions WHERE expires_at <= ?",
@@ -447,18 +484,27 @@ class Database:
             )
 
     def create_download(self, record: dict[str, Any]) -> dict[str, Any]:
-        params = {**record, "user_id": record.get("user_id")}
+        params = {
+            **record,
+            "user_id": record.get("user_id"),
+            "resolved_revision": record.get("resolved_revision"),
+            "staging_path": record.get("staging_path"),
+            "pause_reason": record.get("pause_reason"),
+            "cleaned_at": record.get("cleaned_at"),
+        }
         with self._write_lock, self.connect() as connection:
             connection.execute(
                 """
                 INSERT INTO downloads (
                     id, repo_id, revision, status, total_bytes, downloaded_bytes,
                     progress, speed_bps, error, target_path, payload_json,
-                    metadata_json, created_at, updated_at, completed_at, user_id
+                    metadata_json, created_at, updated_at, completed_at, user_id,
+                    resolved_revision, staging_path, pause_reason, cleaned_at
                 ) VALUES (
                     :id, :repo_id, :revision, :status, :total_bytes, :downloaded_bytes,
                     :progress, :speed_bps, :error, :target_path, :payload_json,
-                    :metadata_json, :created_at, :updated_at, :completed_at, :user_id
+                    :metadata_json, :created_at, :updated_at, :completed_at, :user_id,
+                    :resolved_revision, :staging_path, :pause_reason, :cleaned_at
                 )
                 """,
                 params,
@@ -473,6 +519,29 @@ class Database:
         safe_changes["id"] = download_id
         with self._write_lock, self.connect() as connection:
             connection.execute(f"UPDATE downloads SET {assignments} WHERE id = :id", safe_changes)
+        return self.get_download(download_id)
+
+    def update_download_if_status(
+        self,
+        download_id: str,
+        expected_statuses: set[str],
+        **changes: Any,
+    ) -> dict[str, Any] | None:
+        safe_changes = {key: value for key, value in changes.items() if key in DOWNLOAD_FIELDS}
+        if not safe_changes or not expected_statuses:
+            return self.get_download(download_id)
+        status_names = sorted(expected_statuses)
+        placeholders = ", ".join("?" for _ in status_names)
+        parameters = [*safe_changes.values(), download_id, *status_names]
+        positional_assignments = ", ".join(f"{key} = ?" for key in safe_changes)
+        with self._write_lock, self.connect() as connection:
+            cursor = connection.execute(
+                f"UPDATE downloads SET {positional_assignments} "
+                f"WHERE id = ? AND status IN ({placeholders})",
+                parameters,
+            )
+        if cursor.rowcount == 0:
+            return None
         return self.get_download(download_id)
 
     def get_download(self, download_id: str) -> dict[str, Any] | None:
@@ -513,7 +582,9 @@ class Database:
             row = connection.execute(
                 """
                 SELECT * FROM downloads
-                WHERE repo_id = ? AND status IN ('queued', 'preparing', 'downloading')
+                WHERE repo_id = ? AND status IN (
+                    'queued', 'scheduled', 'preparing', 'downloading', 'finalizing', 'paused'
+                )
                 ORDER BY created_at DESC LIMIT 1
                 """,
                 (repo_id,),
@@ -523,9 +594,59 @@ class Database:
     def unfinished_downloads(self) -> list[dict[str, Any]]:
         with self.connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM downloads WHERE status IN ('queued', 'preparing', 'downloading')"
+                """
+                SELECT * FROM downloads
+                WHERE status IN ('queued', 'scheduled', 'preparing', 'downloading', 'finalizing')
+                """
             ).fetchall()
         return [self._decode_row(row) for row in rows]
+
+    def get_download_schedule(self) -> dict[str, Any]:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM download_schedule WHERE id = 1"
+            ).fetchone()
+        if not row:
+            return {
+                "enabled": False,
+                "timezone": "UTC",
+                "weekdays": [],
+                "start_time": "00:00",
+                "end_time": "06:00",
+                "updated_by": None,
+                "updated_at": None,
+            }
+        result = dict(row)
+        try:
+            result["weekdays"] = json.loads(result.pop("weekdays_json") or "[]")
+        except (TypeError, json.JSONDecodeError):
+            result["weekdays"] = []
+        result["enabled"] = bool(result["enabled"])
+        result.pop("id", None)
+        return result
+
+    def update_download_schedule(self, record: dict[str, Any]) -> dict[str, Any]:
+        params = {
+            **record,
+            "enabled": int(bool(record["enabled"])),
+            "weekdays_json": json.dumps(record["weekdays"]),
+        }
+        with self._write_lock, self.connect() as connection:
+            connection.execute(
+                """
+                UPDATE download_schedule
+                SET enabled = :enabled,
+                    timezone = :timezone,
+                    weekdays_json = :weekdays_json,
+                    start_time = :start_time,
+                    end_time = :end_time,
+                    updated_by = :updated_by,
+                    updated_at = :updated_at
+                WHERE id = 1
+                """,
+                params,
+            )
+        return self.get_download_schedule()
 
     def create_runtime_job(self, record: dict[str, Any]) -> dict[str, Any]:
         with self._write_lock, self.connect() as connection:

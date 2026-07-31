@@ -73,10 +73,15 @@ class Settings:
     def hub_cache_path(self) -> Path:
         return self.data_dir / "hub-cache"
 
+    @property
+    def download_staging_path(self) -> Path:
+        return self.model_storage / ".hugginghack-downloads"
+
     def ensure_directories(self) -> None:
         self.model_storage.mkdir(parents=True, exist_ok=True)
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.hub_cache_path.mkdir(parents=True, exist_ok=True)
+        self.download_staging_path.mkdir(parents=True, exist_ok=True)
 
     @property
     def s3_enabled(self) -> bool:
