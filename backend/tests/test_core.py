@@ -19,7 +19,12 @@ from app.runtimes import (
     parse_runtime_targets,
     remote_model_path,
 )
-from app.storage import FilesystemModelStorage, S3ModelStorage, inject_delete_objects_md5
+from app.storage import (
+    FilesystemModelStorage,
+    S3ModelStorage,
+    inject_delete_objects_md5,
+    s3_client_config_options,
+)
 from app.uploads import UploadManager, validate_upload_path
 from app.vllm_agent import AgentSettings, VllmProcessManager
 
@@ -88,6 +93,56 @@ def test_delete_objects_md5_is_injected_without_overwriting_existing_header():
     request.headers["Content-MD5"] = "provided-by-botocore"
     inject_delete_objects_md5(request)
     assert request.headers["Content-MD5"] == "provided-by-botocore"
+
+
+def test_garage_storage_uses_compatible_s3_defaults(tmp_path: Path):
+    settings = Settings(
+        model_storage=(tmp_path / "models").resolve(),
+        data_dir=(tmp_path / "data").resolve(),
+        model_storage_backend="s3",
+        s3_provider="garage",
+        s3_bucket="model-bucket",
+        s3_endpoint_url="http://garage:3900",
+    )
+
+    assert settings.effective_s3_region == "garage"
+    assert settings.effective_s3_addressing_style == "path"
+    assert s3_client_config_options(settings) == {
+        "connect_timeout": 3,
+        "read_timeout": 10,
+        "retries": {"max_attempts": 5, "mode": "standard"},
+        "s3": {"addressing_style": "path"},
+        "signature_version": "s3v4",
+        "request_checksum_calculation": "when_required",
+        "response_checksum_validation": "when_required",
+    }
+
+    health = S3ModelStorage(settings, client=FakeS3Client()).health()
+    assert health["provider"] == "garage"
+    assert health["connected"] is True
+
+
+def test_garage_storage_requires_endpoint_and_rejects_storage_class(tmp_path: Path):
+    options = {
+        "model_storage": (tmp_path / "models").resolve(),
+        "data_dir": (tmp_path / "data").resolve(),
+        "model_storage_backend": "s3",
+        "s3_provider": "garage",
+        "s3_bucket": "model-bucket",
+    }
+
+    with pytest.raises(ValueError, match="S3_ENDPOINT_URL"):
+        S3ModelStorage(Settings(**options), client=FakeS3Client())
+
+    with pytest.raises(ValueError, match="S3_STORAGE_CLASS"):
+        S3ModelStorage(
+            Settings(
+                **options,
+                s3_endpoint_url="http://garage:3900",
+                s3_storage_class="STANDARD_IA",
+            ),
+            client=FakeS3Client(),
+        )
 
 
 def test_repo_id_validation_rejects_path_traversal():

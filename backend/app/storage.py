@@ -26,6 +26,22 @@ def inject_delete_objects_md5(request: Any, **_: Any) -> None:
         request.headers["Content-MD5"] = base64.b64encode(digest).decode("ascii")
 
 
+def s3_client_config_options(settings: Settings) -> dict[str, Any]:
+    options: dict[str, Any] = {
+        "connect_timeout": 3,
+        "read_timeout": 10,
+        "retries": {"max_attempts": 5, "mode": "standard"},
+        "s3": {"addressing_style": settings.effective_s3_addressing_style},
+    }
+    if settings.s3_provider == "garage":
+        options.update(
+            signature_version="s3v4",
+            request_checksum_calculation="when_required",
+            response_checksum_validation="when_required",
+        )
+    return options
+
+
 def _iso(value: Any) -> str:
     if isinstance(value, datetime):
         return value.astimezone(timezone.utc).isoformat()
@@ -68,6 +84,7 @@ class FilesystemModelStorage:
     def health(self) -> dict[str, Any]:
         return {
             "backend": self.backend,
+            "provider": None,
             "enabled": False,
             "connected": True,
             "bucket": None,
@@ -113,15 +130,23 @@ class S3ModelStorage(FilesystemModelStorage):
         super().__init__(settings)
         if not settings.s3_bucket:
             raise ValueError("S3_BUCKET is required when MODEL_STORAGE_BACKEND=s3.")
+        if settings.s3_provider not in {"auto", "garage"}:
+            raise ValueError("S3_PROVIDER must be auto or garage.")
         if settings.s3_addressing_style not in {"auto", "path", "virtual"}:
             raise ValueError("S3_ADDRESSING_STYLE must be auto, path, or virtual.")
         if bool(settings.s3_access_key_id) != bool(settings.s3_secret_access_key):
             raise ValueError(
                 "S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY must be configured together."
             )
+        if settings.s3_provider == "garage":
+            if not settings.s3_endpoint_url:
+                raise ValueError("S3_ENDPOINT_URL is required when S3_PROVIDER=garage.")
+            if settings.s3_storage_class:
+                raise ValueError("S3_STORAGE_CLASS is not supported by Garage.")
         self.bucket = settings.s3_bucket
         self.prefix = settings.s3_prefix
         self.endpoint = settings.s3_endpoint_url
+        self.provider = "garage" if settings.s3_provider == "garage" else "s3"
         self._lock = threading.RLock()
         if client is None:
             try:
@@ -136,17 +161,12 @@ class S3ModelStorage(FilesystemModelStorage):
                 "service_name": "s3",
                 "use_ssl": settings.s3_use_ssl,
                 "verify": settings.s3_verify_ssl,
-                "config": Config(
-                    connect_timeout=3,
-                    read_timeout=10,
-                    retries={"max_attempts": 5, "mode": "standard"},
-                    s3={"addressing_style": settings.s3_addressing_style},
-                ),
+                "config": Config(**s3_client_config_options(settings)),
             }
             if settings.s3_endpoint_url:
                 client_options["endpoint_url"] = settings.s3_endpoint_url
-            if settings.s3_region:
-                client_options["region_name"] = settings.s3_region
+            if settings.effective_s3_region:
+                client_options["region_name"] = settings.effective_s3_region
             if settings.s3_access_key_id:
                 client_options["aws_access_key_id"] = settings.s3_access_key_id
             if settings.s3_secret_access_key:
@@ -236,6 +256,7 @@ class S3ModelStorage(FilesystemModelStorage):
             error = error[:300]
         return {
             "backend": self.backend,
+            "provider": self.provider,
             "enabled": True,
             "connected": connected,
             "bucket": self.bucket,

@@ -47,6 +47,7 @@ class Settings:
     runtime_targets_json: str = os.getenv("RUNTIME_TARGETS_JSON", "[]")
     runtime_workers: int = _positive_int("RUNTIME_WORKERS", 2, 8)
     runtime_api_token: str | None = os.getenv("RUNTIME_API_TOKEN") or None
+    s3_provider: str = os.getenv("S3_PROVIDER", "auto").strip().lower()
     s3_bucket: str | None = os.getenv("S3_BUCKET") or None
     s3_prefix: str = os.getenv("S3_PREFIX", "models").strip().strip("/")
     s3_endpoint_url: str | None = os.getenv("S3_ENDPOINT_URL") or None
@@ -81,6 +82,18 @@ class Settings:
     @property
     def s3_enabled(self) -> bool:
         return self.model_storage_backend == "s3"
+
+    @property
+    def effective_s3_region(self) -> str | None:
+        if self.s3_region:
+            return self.s3_region
+        return "garage" if self.s3_provider == "garage" else None
+
+    @property
+    def effective_s3_addressing_style(self) -> str:
+        if self.s3_provider == "garage" and self.s3_addressing_style == "auto":
+            return "path"
+        return self.s3_addressing_style
 
 
 settings = Settings()
