@@ -181,6 +181,35 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_oidc_login_states_expiry
                     ON oidc_login_states(expires_at);
 
+                CREATE TABLE IF NOT EXISTS hardware_rigs (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    name TEXT NOT NULL,
+                    notes TEXT NOT NULL DEFAULT '',
+                    is_primary INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(user_id, name)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_hardware_rigs_user
+                    ON hardware_rigs(user_id, is_primary DESC, created_at);
+
+                CREATE TABLE IF NOT EXISTS hardware_components (
+                    id TEXT PRIMARY KEY,
+                    rig_id TEXT NOT NULL REFERENCES hardware_rigs(id) ON DELETE CASCADE,
+                    kind TEXT NOT NULL CHECK (kind IN ('cpu', 'gpu', 'apple_silicon')),
+                    vendor TEXT NOT NULL DEFAULT '',
+                    model TEXT NOT NULL,
+                    memory_bytes INTEGER NOT NULL CHECK (memory_bytes >= 0),
+                    quantity INTEGER NOT NULL DEFAULT 1 CHECK (quantity >= 1 AND quantity <= 16),
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_hardware_components_rig
+                    ON hardware_components(rig_id);
+
                 CREATE TABLE IF NOT EXISTS downloads (
                     id TEXT PRIMARY KEY,
                     repo_id TEXT NOT NULL,
@@ -559,6 +588,173 @@ class Database:
                 """,
                 (preferred_username, email, last_login_at, issuer, subject),
             )
+
+    def _hardware_rig(
+        self,
+        connection: sqlite3.Connection | _PostgresConnection,
+        row: sqlite3.Row | dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        if row is None:
+            return None
+        rig = dict(row)
+        rig["is_primary"] = bool(rig["is_primary"])
+        components = connection.execute(
+            """
+            SELECT * FROM hardware_components
+            WHERE rig_id = ?
+            ORDER BY kind, vendor, model, id
+            """,
+            (rig["id"],),
+        ).fetchall()
+        rig["components"] = [dict(component) for component in components]
+        return rig
+
+    def list_hardware_rigs(self, user_id: str) -> list[dict[str, Any]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM hardware_rigs
+                WHERE user_id = ?
+                ORDER BY is_primary DESC, created_at, name
+                """,
+                (user_id,),
+            ).fetchall()
+            return [self._hardware_rig(connection, row) for row in rows]
+
+    def get_hardware_rig(self, rig_id: str, user_id: str) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM hardware_rigs WHERE id = ? AND user_id = ?",
+                (rig_id, user_id),
+            ).fetchone()
+            return self._hardware_rig(connection, row)
+
+    def create_hardware_rig(
+        self, record: dict[str, Any], components: list[dict[str, Any]]
+    ) -> dict[str, Any] | None:
+        with self._write_lock, self.connect() as connection:
+            existing = connection.execute(
+                "SELECT COUNT(*) AS count FROM hardware_rigs WHERE user_id = ?",
+                (record["user_id"],),
+            ).fetchone()
+            is_primary = bool(record.get("is_primary")) or int(existing["count"]) == 0
+            if is_primary:
+                connection.execute(
+                    "UPDATE hardware_rigs SET is_primary = 0 WHERE user_id = ?",
+                    (record["user_id"],),
+                )
+            connection.execute(
+                """
+                INSERT INTO hardware_rigs (
+                    id, user_id, name, notes, is_primary, created_at, updated_at
+                ) VALUES (
+                    :id, :user_id, :name, :notes, :is_primary, :created_at, :updated_at
+                )
+                """,
+                {**record, "is_primary": int(is_primary)},
+            )
+            for component in components:
+                connection.execute(
+                    """
+                    INSERT INTO hardware_components (
+                        id, rig_id, kind, vendor, model, memory_bytes, quantity,
+                        created_at, updated_at
+                    ) VALUES (
+                        :id, :rig_id, :kind, :vendor, :model, :memory_bytes, :quantity,
+                        :created_at, :updated_at
+                    )
+                    """,
+                    component,
+                )
+        return self.get_hardware_rig(record["id"], record["user_id"])
+
+    def update_hardware_rig(
+        self,
+        rig_id: str,
+        user_id: str,
+        record: dict[str, Any],
+        components: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        with self._write_lock, self.connect() as connection:
+            current = connection.execute(
+                "SELECT * FROM hardware_rigs WHERE id = ? AND user_id = ?",
+                (rig_id, user_id),
+            ).fetchone()
+            if not current:
+                return None
+            if record.get("is_primary"):
+                connection.execute(
+                    "UPDATE hardware_rigs SET is_primary = 0 WHERE user_id = ?",
+                    (user_id,),
+                )
+            connection.execute(
+                """
+                UPDATE hardware_rigs
+                SET name = :name, notes = :notes, is_primary = :is_primary,
+                    updated_at = :updated_at
+                WHERE id = :id AND user_id = :user_id
+                """,
+                {
+                    **record,
+                    "id": rig_id,
+                    "user_id": user_id,
+                    "is_primary": int(bool(record.get("is_primary"))),
+                },
+            )
+            primary = connection.execute(
+                "SELECT id FROM hardware_rigs WHERE user_id = ? AND is_primary = 1 LIMIT 1",
+                (user_id,),
+            ).fetchone()
+            if not primary:
+                connection.execute(
+                    "UPDATE hardware_rigs SET is_primary = 1 WHERE id = ?",
+                    (rig_id,),
+                )
+            connection.execute(
+                "DELETE FROM hardware_components WHERE rig_id = ?",
+                (rig_id,),
+            )
+            for component in components:
+                connection.execute(
+                    """
+                    INSERT INTO hardware_components (
+                        id, rig_id, kind, vendor, model, memory_bytes, quantity,
+                        created_at, updated_at
+                    ) VALUES (
+                        :id, :rig_id, :kind, :vendor, :model, :memory_bytes, :quantity,
+                        :created_at, :updated_at
+                    )
+                    """,
+                    component,
+                )
+        return self.get_hardware_rig(rig_id, user_id)
+
+    def delete_hardware_rig(self, rig_id: str, user_id: str) -> bool:
+        with self._write_lock, self.connect() as connection:
+            current = connection.execute(
+                "SELECT is_primary FROM hardware_rigs WHERE id = ? AND user_id = ?",
+                (rig_id, user_id),
+            ).fetchone()
+            if not current:
+                return False
+            connection.execute(
+                "DELETE FROM hardware_rigs WHERE id = ? AND user_id = ?",
+                (rig_id, user_id),
+            )
+            if bool(current["is_primary"]):
+                replacement = connection.execute(
+                    """
+                    SELECT id FROM hardware_rigs
+                    WHERE user_id = ? ORDER BY created_at, name LIMIT 1
+                    """,
+                    (user_id,),
+                ).fetchone()
+                if replacement:
+                    connection.execute(
+                        "UPDATE hardware_rigs SET is_primary = 1 WHERE id = ?",
+                        (replacement["id"],),
+                    )
+        return True
 
     def create_session(self, record: dict[str, Any]) -> None:
         with self._write_lock, self.connect() as connection:

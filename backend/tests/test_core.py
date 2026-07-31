@@ -20,6 +20,7 @@ from app.database import Database, _postgres_query
 from app.download_schedule import validate_schedule, window_is_open
 from app.downloads import DownloadManager, resolve_selection
 from app.hub_service import HubService, parse_gguf_range, validate_gguf_filename, weight_groups
+from app.hardware import evaluate_weight, evaluate_weight_groups
 from app.indexer import LocalModelIndexer
 from app.oidc import OIDCService
 from app.runtimes import (
@@ -757,6 +758,109 @@ def test_oidc_id_token_validation_checks_signature_audience_and_nonce(tmp_path: 
         await service.close()
 
     asyncio.run(run_validation())
+
+
+def test_hardware_rigs_are_private_and_keep_one_primary(tmp_path: Path):
+    database = Database((tmp_path / "hardware.sqlite3").resolve())
+    database.initialize()
+    service = AuthService(Settings(), database)
+    owner = service.create_user("owner", "Owner", "correct horse battery", "admin")
+    member = service.create_user("member", "Member", "another secure phrase", "member")
+    timestamp = "2026-07-31T12:00:00+00:00"
+
+    first = database.create_hardware_rig(
+        {
+            "id": "rig-one",
+            "user_id": owner["id"],
+            "name": "Mac Studio",
+            "notes": "Desk",
+            "is_primary": False,
+            "created_at": timestamp,
+            "updated_at": timestamp,
+        },
+        [
+            {
+                "id": "component-one",
+                "rig_id": "rig-one",
+                "kind": "apple_silicon",
+                "vendor": "Apple",
+                "model": "M4 Max",
+                "memory_bytes": 64 * 1024**3,
+                "quantity": 1,
+                "created_at": timestamp,
+                "updated_at": timestamp,
+            }
+        ],
+    )
+    assert first["is_primary"] is True
+    assert first["components"][0]["memory_bytes"] == 64 * 1024**3
+    assert database.list_hardware_rigs(member["id"]) == []
+
+    second = database.create_hardware_rig(
+        {
+            "id": "rig-two",
+            "user_id": owner["id"],
+            "name": "GPU server",
+            "notes": "Rack",
+            "is_primary": True,
+            "created_at": "2026-07-31T12:01:00+00:00",
+            "updated_at": timestamp,
+        },
+        [],
+    )
+    assert second["is_primary"] is True
+    assert database.get_hardware_rig("rig-one", owner["id"])["is_primary"] is False
+    assert database.get_hardware_rig("rig-one", member["id"]) is None
+
+    assert database.delete_hardware_rig("rig-two", member["id"]) is False
+    assert database.delete_hardware_rig("rig-two", owner["id"]) is True
+    assert database.get_hardware_rig("rig-one", owner["id"])["is_primary"] is True
+
+
+def test_hardware_compatibility_applies_twenty_percent_headroom():
+    gib = 1024**3
+    gpu_rig = {
+        "id": "gpu-rig",
+        "name": "GPU rig",
+        "is_primary": True,
+        "components": [
+            {
+                "kind": "gpu",
+                "memory_bytes": 10 * gib,
+                "quantity": 1,
+            }
+        ],
+    }
+    gguf = {"id": "q8", "format": "gguf", "total_bytes": 9 * gib}
+    result = evaluate_weight(gguf, gpu_rig)
+    assert result["status"] == "tight"
+    assert result["target"] == "aggregate GPU VRAM"
+    assert result["required_bytes"] == 11_596_411_700
+    assert result["headroom_percent"] == 20
+
+    apple_rig = {
+        "id": "mac",
+        "name": "Mac",
+        "components": [
+            {
+                "kind": "apple_silicon",
+                "memory_bytes": 16 * gib,
+                "quantity": 1,
+            }
+        ],
+    }
+    groups = evaluate_weight_groups(
+        [{"id": "mlx", "format": "mlx", "total_bytes": 10 * gib}],
+        [apple_rig],
+    )
+    assert groups[0]["compatibility"][0]["status"] == "fits"
+    assert groups[0]["compatibility"][0]["target"] == "Apple unified memory"
+
+    incompatible = evaluate_weight(
+        {"id": "mlx", "format": "mlx", "total_bytes": gib}, gpu_rig
+    )
+    assert incompatible["status"] == "unknown"
+    assert incompatible["available_bytes"] == 0
 
 
 def test_database_migrates_existing_download_history(tmp_path: Path):
