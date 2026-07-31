@@ -32,7 +32,6 @@ export function HardwareCatalogPicker({
     () => filterHardwareCatalog(items, query, vendor),
     [items, query, vendor],
   )
-
   if (selected && !browsing) {
     return (
       <div className="hardware-catalog-selected">
@@ -62,7 +61,9 @@ export function HardwareCatalogPicker({
     <div className="hardware-catalog-picker">
       <div className="hardware-catalog-picker-heading">
         <span><strong>Choose a hardware model</strong><small>Search the local hardware catalog.</small></span>
-        <span>{items.length > 0 ? `${items.length} models` : ''}</span>
+        <span>{items.length > 0
+          ? query || vendor ? `${results.length} matches` : `${items.length} models`
+          : ''}</span>
       </div>
 
       <div className="hardware-vendor-filters" aria-label="Filter hardware vendors">
