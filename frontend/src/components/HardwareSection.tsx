@@ -200,33 +200,77 @@ export function HardwareSection({ onToast }: { onToast: ToastHandler }) {
 
       {editing && (
         <form className="hardware-editor" onSubmit={save}>
-          <div className="hardware-editor-grid">
-            <label>Rig name<input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} maxLength={80} placeholder="Mac Studio" required /></label>
-            <label>Notes<input value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} maxLength={500} placeholder="Desk, rack, or purpose" /></label>
+          <div className="hardware-editor-heading">
+            <span className="hardware-editor-icon"><MemoryStick size={18} /></span>
+            <span>
+              <strong>{editing === 'new' ? 'Add a hardware rig' : `Edit ${draft.name || 'hardware rig'}`}</strong>
+              <small>Describe the memory available to models on this machine.</small>
+            </span>
+            <button type="button" className="hardware-editor-close" onClick={() => setEditing(null)} aria-label="Close hardware editor"><X size={16} /></button>
           </div>
-          <label className="safety-toggle compact">
-            <input type="checkbox" checked={draft.is_primary} onChange={(event) => setDraft({ ...draft, is_primary: event.target.checked })} />
-            <span><strong>Primary rig</strong><small>Shown first when comparing model weights.</small></span>
-          </label>
-          <div className="hardware-component-editor">
-            <div className="selection-browser-heading">
-              <span><strong>Components</strong><small>Enter usable system RAM, VRAM, or unified memory.</small></span>
-              <button type="button" className="text-button" onClick={addComponent}><Plus size={13} /> Add component</button>
+
+          <div className="hardware-editor-basics">
+            <label className="hardware-field">
+              <span>Rig name</span>
+              <input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} maxLength={80} placeholder="Mac Studio" required />
+            </label>
+            <label className="hardware-field">
+              <span>Notes <small>optional</small></span>
+              <input value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} maxLength={500} placeholder="Desk, rack, or purpose" />
+            </label>
+            <label className="hardware-primary-card">
+              <input type="checkbox" checked={draft.is_primary} onChange={(event) => setDraft({ ...draft, is_primary: event.target.checked })} />
+              <span className="hardware-primary-switch" aria-hidden="true"><span /></span>
+              <span className="hardware-primary-copy"><strong>Primary rig</strong><small>Use first in weight comparisons</small></span>
+            </label>
+          </div>
+
+          <section className="hardware-component-editor" aria-labelledby="hardware-components-heading">
+            <div className="hardware-component-heading">
+              <span>
+                <strong id="hardware-components-heading">Memory components</strong>
+                <small>Add usable system RAM, dedicated VRAM, or unified memory.</small>
+              </span>
+              {draft.components.length > 0 && (
+                <button type="button" className="secondary-button compact" onClick={addComponent}><Plus size={14} /> Add component</button>
+              )}
             </div>
-            {draft.components.map((component, index) => (
-              <div className="hardware-component-row" key={index}>
-                <label>Type<select value={component.kind} onChange={(event) => updateComponent(index, { kind: event.target.value as HardwareComponentKind })}>{Object.entries(kindLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
-                <label>Vendor<input value={component.vendor} onChange={(event) => updateComponent(index, { vendor: event.target.value })} maxLength={80} placeholder="NVIDIA" /></label>
-                <label>Model<input value={component.model} onChange={(event) => updateComponent(index, { model: event.target.value })} maxLength={120} placeholder="RTX 4090" required /></label>
-                <label>Memory GiB<input type="number" min="0.01" max="1048576" step="0.01" value={component.memory_gb} onChange={(event) => updateComponent(index, { memory_gb: event.target.value })} placeholder="24" required /></label>
-                <label>Qty<input type="number" min="1" max="16" value={component.quantity} onChange={(event) => updateComponent(index, { quantity: Number(event.target.value) })} required /></label>
-                <button type="button" className="hardware-remove-component danger-text" onClick={() => setDraft((current) => ({ ...current, components: current.components.filter((_, componentIndex) => componentIndex !== index) }))} aria-label="Remove component"><X size={15} /></button>
+
+            {draft.components.length === 0 && (
+              <div className="hardware-component-empty">
+                <span className="hardware-component-empty-icon"><MemoryStick size={20} /></span>
+                <span><strong>No memory components yet</strong><small>Add the memory pool a model can use on this rig.</small></span>
+                <button type="button" className="secondary-button compact" onClick={addComponent}><Plus size={14} /> Add first component</button>
               </div>
+            )}
+
+            {draft.components.map((component, index) => (
+              <article className="hardware-component-card" key={index}>
+                <div className="hardware-component-card-heading">
+                  <span className="hardware-component-number">{index + 1}</span>
+                  <span>
+                    <strong>{component.model.trim() || kindLabels[component.kind]}</strong>
+                    <small>{component.memory_gb ? `${component.memory_gb} GiB${component.quantity > 1 ? ` × ${component.quantity}` : ''}` : 'Memory details'}</small>
+                  </span>
+                  <button type="button" className="hardware-remove-component danger-text" onClick={() => setDraft((current) => ({ ...current, components: current.components.filter((_, componentIndex) => componentIndex !== index) }))} aria-label={`Remove component ${index + 1}`}><Trash2 size={14} /></button>
+                </div>
+                <div className="hardware-component-fields">
+                  <label className="hardware-field"><span>Type</span><select value={component.kind} onChange={(event) => updateComponent(index, { kind: event.target.value as HardwareComponentKind })}>{Object.entries(kindLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+                  <label className="hardware-field"><span>Vendor</span><input value={component.vendor} onChange={(event) => updateComponent(index, { vendor: event.target.value })} maxLength={80} placeholder="NVIDIA" /></label>
+                  <label className="hardware-field"><span>Model</span><input value={component.model} onChange={(event) => updateComponent(index, { model: event.target.value })} maxLength={120} placeholder="RTX 4090" required /></label>
+                  <label className="hardware-field"><span>Memory <small>GiB</small></span><input type="number" min="0.01" max="1048576" step="0.01" value={component.memory_gb} onChange={(event) => updateComponent(index, { memory_gb: event.target.value })} placeholder="24" required /></label>
+                  <label className="hardware-field"><span>Quantity</span><input type="number" min="1" max="16" value={component.quantity} onChange={(event) => updateComponent(index, { quantity: Number(event.target.value) })} required /></label>
+                </div>
+              </article>
             ))}
-          </div>
+          </section>
+
           <div className="hardware-editor-actions">
-            <button className="download-button compact" disabled={saving}>{saving ? <LoaderCircle size={14} className="spin" /> : <Save size={14} />} Save rig</button>
-            <button type="button" className="secondary-button compact" onClick={() => setEditing(null)}><X size={14} /> Cancel</button>
+            <span>{draft.components.length} component{draft.components.length === 1 ? '' : 's'} configured</span>
+            <div>
+              <button type="button" className="secondary-button compact" onClick={() => setEditing(null)}>Cancel</button>
+              <button className="download-button compact" disabled={saving}>{saving ? <LoaderCircle size={14} className="spin" /> : <Save size={14} />} Save rig</button>
+            </div>
           </div>
         </form>
       )}

@@ -1672,20 +1672,142 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
 .hardware-components-summary { margin-top: 12px; display: grid; gap: 6px; }
 .hardware-components-summary > span { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 11px; }
 .hardware-components-summary > span strong { font-weight: 550; }
-.hardware-editor { margin-top: 18px; padding-top: 18px; display: grid; gap: 14px; border-top: 1px solid var(--border); }
-.hardware-editor-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.hardware-editor label { display: grid; gap: 6px; color: var(--text-secondary); font-size: 11px; font-weight: 600; }
-.hardware-editor input, .hardware-editor select {
-  width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid var(--border-strong);
-  border-radius: 7px; outline: 0; background: var(--canvas); color: var(--text);
+
+.hardware-editor {
+  margin-top: 20px; overflow: hidden; border: 1px solid var(--border);
+  border-radius: 12px; background: var(--canvas-subtle);
 }
-.hardware-component-editor { display: grid; gap: 9px; }
-.hardware-component-row { display: grid; grid-template-columns: 1.25fr 1fr 1.5fr 0.75fr 0.45fr 30px; align-items: end; gap: 7px; }
-.hardware-remove-component { margin-bottom: 5px; }
-.hardware-editor-actions { display: flex; gap: 8px; }
+.hardware-editor-heading {
+  min-height: 68px; padding: 14px 16px; display: flex; align-items: center; gap: 10px;
+  border-bottom: 1px solid var(--border); background: var(--canvas);
+}
+.hardware-editor-icon, .hardware-component-empty-icon {
+  width: 36px; height: 36px; display: grid; flex: 0 0 36px; place-items: center;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--canvas-subtle);
+  color: var(--brand-warm);
+}
+.hardware-editor-heading > span:nth-child(2),
+.hardware-component-heading > span, .hardware-component-empty > span:nth-child(2),
+.hardware-component-card-heading > span:nth-child(2) { min-width: 0; display: grid; }
+.hardware-editor-heading strong { font-size: 13px; }
+.hardware-editor-heading small, .hardware-component-heading small,
+.hardware-component-empty small, .hardware-component-card-heading small {
+  color: var(--text-muted); font-size: 10px; font-weight: 400;
+}
+.hardware-editor-close {
+  width: 32px; height: 32px; margin-left: auto; display: grid; flex: 0 0 32px; place-items: center;
+  border: 1px solid transparent; border-radius: 7px; background: transparent;
+  color: var(--text-muted); cursor: pointer;
+}
+.hardware-editor-close:hover { border-color: var(--border); background: var(--canvas-subtle); color: var(--text); }
+.hardware-editor-basics {
+  padding: 16px; display: grid;
+  grid-template-columns: minmax(210px, 0.8fr) minmax(280px, 1.2fr) minmax(220px, 0.65fr);
+  align-items: end; gap: 12px;
+}
+.hardware-field { min-width: 0; display: grid; gap: 6px; color: var(--text-secondary); font-size: 11px; font-weight: 600; }
+.hardware-field > span { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+.hardware-field > span small { color: var(--text-muted); font-size: 9px; font-weight: 400; text-transform: none; }
+.hardware-field input, .hardware-field select {
+  width: 100%; min-width: 0; min-height: 40px; padding: 8px 10px;
+  border: 1px solid var(--border-strong); border-radius: 7px; outline: 0;
+  background: var(--canvas); color: var(--text);
+}
+.hardware-field input:focus, .hardware-field select:focus {
+  border-color: var(--brand-warm);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--brand-primary) 16%, transparent);
+}
+.hardware-primary-card {
+  min-width: 0; min-height: 64px; padding: 10px 12px; display: flex; align-items: center; gap: 10px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--canvas); cursor: pointer;
+}
+.hardware-primary-card:hover { border-color: var(--border-strong); }
+.hardware-primary-card > input {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none;
+}
+.hardware-primary-switch {
+  width: 34px; height: 20px; padding: 2px; display: flex; flex: 0 0 34px; align-items: center;
+  border: 1px solid var(--border-strong); border-radius: 10px; background: var(--canvas-subtle);
+  transition: background 140ms ease, border-color 140ms ease;
+}
+.hardware-primary-switch > span {
+  width: 14px; height: 14px; border-radius: 50%; background: var(--text-muted);
+  transition: transform 140ms ease, background 140ms ease;
+}
+.hardware-primary-card > input:checked + .hardware-primary-switch {
+  border-color: var(--brand-warm); background: var(--brand-primary);
+}
+.hardware-primary-card > input:checked + .hardware-primary-switch > span {
+  transform: translateX(14px); background: #17120a;
+}
+.hardware-primary-card > input:focus-visible + .hardware-primary-switch {
+  outline: 3px solid color-mix(in oklch, var(--brand-primary) 65%, transparent); outline-offset: 2px;
+}
+.hardware-primary-copy { min-width: 0; display: grid; }
+.hardware-primary-copy strong { color: var(--text); font-size: 11px; }
+.hardware-primary-copy small { color: var(--text-muted); font-size: 9px; font-weight: 400; }
+.hardware-component-editor {
+  padding: 16px; display: grid; gap: 10px; border-top: 1px solid var(--border);
+}
+.hardware-component-heading { min-height: 38px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.hardware-component-heading strong { font-size: 12px; }
+.hardware-component-heading > button { flex: 0 0 auto; }
+.hardware-component-empty {
+  min-height: 92px; padding: 15px; display: grid; grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center; gap: 11px; border: 1px dashed var(--border-strong); border-radius: 9px;
+  background: color-mix(in oklch, var(--canvas) 60%, transparent);
+}
+.hardware-component-empty strong { font-size: 11px; }
+.hardware-component-card {
+  overflow: hidden; border: 1px solid var(--border); border-radius: 9px; background: var(--canvas);
+}
+.hardware-component-card-heading {
+  min-height: 48px; padding: 8px 10px; display: flex; align-items: center; gap: 9px;
+  border-bottom: 1px solid var(--border); background: var(--canvas-subtle);
+}
+.hardware-component-number {
+  width: 25px; height: 25px; display: grid; flex: 0 0 25px; place-items: center;
+  border-radius: 6px; background: var(--canvas); color: var(--text-muted);
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+}
+.hardware-component-card-heading strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.hardware-remove-component { margin-left: auto; }
+.hardware-component-fields {
+  padding: 12px; display: grid;
+  grid-template-columns: minmax(170px, 1.25fr) minmax(110px, 0.75fr) minmax(180px, 1.2fr) minmax(95px, 0.55fr) minmax(80px, 0.45fr);
+  align-items: end; gap: 9px;
+}
+.hardware-editor-actions {
+  min-height: 62px; padding: 12px 16px; display: flex; align-items: center;
+  justify-content: space-between; gap: 12px; border-top: 1px solid var(--border); background: var(--canvas);
+}
+.hardware-editor-actions > span { color: var(--text-muted); font-size: 10px; }
+.hardware-editor-actions > div { display: flex; gap: 8px; }
+
+@media (max-width: 1100px) {
+  .hardware-editor-basics { grid-template-columns: 1fr 1fr; }
+  .hardware-primary-card { grid-column: 1 / -1; }
+  .hardware-component-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hardware-component-fields > label:nth-child(1),
+  .hardware-component-fields > label:nth-child(3) { grid-column: span 2; }
+}
 
 @media (max-width: 820px) {
-  .hardware-rig-list, .hardware-editor-grid { grid-template-columns: 1fr; }
-  .hardware-component-row { grid-template-columns: 1fr 1fr; }
-  .hardware-remove-component { margin-bottom: 0; }
+  .hardware-rig-list, .hardware-editor-basics { grid-template-columns: 1fr; }
+  .hardware-primary-card { grid-column: auto; }
+}
+
+@media (max-width: 560px) {
+  .hardware-section-title { flex-wrap: wrap; }
+  .hardware-section-title > button { width: 100%; margin-left: 31px; justify-content: center; }
+  .hardware-editor-heading, .hardware-editor-basics,
+  .hardware-component-editor, .hardware-editor-actions { padding-inline: 12px; }
+  .hardware-component-empty { grid-template-columns: 36px minmax(0, 1fr); }
+  .hardware-component-empty > button { grid-column: 1 / -1; justify-content: center; }
+  .hardware-component-fields { grid-template-columns: 1fr; }
+  .hardware-component-fields > label:nth-child(1),
+  .hardware-component-fields > label:nth-child(3) { grid-column: auto; }
+  .hardware-editor-actions { align-items: stretch; flex-direction: column; }
+  .hardware-editor-actions > div { display: grid; grid-template-columns: 1fr 1fr; }
+  .hardware-editor-actions button { justify-content: center; }
 }
