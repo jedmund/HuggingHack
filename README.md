@@ -53,6 +53,7 @@
 - Automatic local-library indexing with model size, file count, config metadata, and unsafe serialization warnings
 - Built-in local accounts or Pocket ID OIDC with per-user provisioning and group-based roles
 - Per-account saved models, private notes, and project or rig collections
+- Per-account **My Hardware** rigs with GGUF/MLX weight-fit estimates and 20% runtime headroom
 - Private or locally shared user repositories with resumable, chunked model-folder uploads
 - Optional S3-compatible durable storage with a local working cache, remote browsing, restore, and cache eviction
 - Network runtime jobs: transfer models to Ollama or switch a remote vLLM rig through an authenticated manager
@@ -439,6 +440,29 @@ Custom pattern examples:
 - Exclude legacy PyTorch weights: `*.bin, *.pt, *.pth`
 
 Patterns use Hugging Face's official `snapshot_download` filtering.
+
+## My Hardware compatibility
+
+Open **Settings → My hardware** to add named machines and any combination of:
+
+- CPU/system RAM
+- one or more GPUs and their VRAM
+- Apple silicon and its unified memory
+
+The first rig becomes primary, and any rig can be marked primary later. Hardware profiles are
+private to the signed-in account. Open a model with detected GGUF quantizations or MLX weight
+folders to see a fit summary beside each complete weight set; selecting one shows the result for
+every saved rig.
+
+HuggingHack reserves 20% above the published weight-file size for runtime overhead. **Fits**
+means that reserve is available, **tight** means the raw weights fit without the full reserve,
+and **does not fit** means the weight bytes exceed the applicable memory. GGUF checks Apple
+unified memory, aggregate GPU VRAM, and system RAM; MLX checks Apple unified memory. Missing or
+inapplicable component data is reported as unknown.
+
+These are planning estimates, not runtime guarantees. Context length, KV cache, framework,
+offloading strategy, multimodal projectors, and other processes can materially change actual
+memory use.
 
 ## GGUF metadata and tensors
 

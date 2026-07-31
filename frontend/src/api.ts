@@ -7,6 +7,8 @@ import type {
   Health,
   HubModel,
   HubModelDetails,
+  HardwareRig,
+  HardwareRigInput,
   LocalModel,
   LocalModelDetails,
   OwnedRepository,
@@ -74,6 +76,21 @@ export const api = {
     request<{ status: string }>('/api/account/password', {
       method: 'PATCH',
       body: JSON.stringify(payload),
+    }),
+  hardwareRigs: () => request<{ items: HardwareRig[] }>('/api/hardware/rigs'),
+  createHardwareRig: (payload: HardwareRigInput) =>
+    request<HardwareRig>('/api/hardware/rigs', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  updateHardwareRig: (rigId: string, payload: HardwareRigInput) =>
+    request<HardwareRig>(`/api/hardware/rigs/${encodeURIComponent(rigId)}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+  deleteHardwareRig: (rigId: string) =>
+    request<{ status: string }>(`/api/hardware/rigs/${encodeURIComponent(rigId)}`, {
+      method: 'DELETE',
     }),
   health: () => request<Health>('/api/health'),
   searchModels: (params: URLSearchParams) =>

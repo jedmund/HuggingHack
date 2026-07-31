@@ -87,6 +87,51 @@ export interface HubModelDetails extends HubModel {
   source_url: string
   model_card?: string | null
   weight_groups: WeightGroup[]
+  hardware_rig_count: number
+}
+
+export type HardwareComponentKind = 'cpu' | 'gpu' | 'apple_silicon'
+
+export interface HardwareComponent {
+  id: string
+  rig_id: string
+  kind: HardwareComponentKind
+  vendor: string
+  model: string
+  memory_bytes: number
+  quantity: number
+  created_at: string
+  updated_at: string
+}
+
+export interface HardwareRig {
+  id: string
+  user_id: string
+  name: string
+  notes: string
+  is_primary: boolean
+  components: HardwareComponent[]
+  created_at: string
+  updated_at: string
+}
+
+export interface HardwareRigInput {
+  name: string
+  notes: string
+  is_primary: boolean
+  components: Array<Pick<HardwareComponent, 'kind' | 'vendor' | 'model' | 'memory_bytes' | 'quantity'>>
+}
+
+export interface HardwareEvaluation {
+  rig_id: string
+  rig_name: string
+  is_primary: boolean
+  status: 'fits' | 'tight' | 'does_not_fit' | 'unknown'
+  target: string | null
+  weight_bytes: number
+  required_bytes: number
+  available_bytes: number
+  headroom_percent: number
 }
 
 export interface SelectionPath {
@@ -101,6 +146,7 @@ export interface WeightGroup {
   files: string[]
   total_bytes: number
   selection: SelectionPath[]
+  compatibility: HardwareEvaluation[]
 }
 
 export type DownloadMode = 'full' | 'safetensors' | 'gguf' | 'metadata' | 'custom' | 'selection'

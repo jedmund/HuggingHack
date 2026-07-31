@@ -52,6 +52,7 @@ import type {
   RuntimeJob,
   RuntimeTarget,
   SelectionPath,
+  WeightGroup,
 } from '../types'
 import { formatBytes, formatNumber, relativeTime, taskLabel } from '../utils'
 
@@ -98,6 +99,33 @@ function isMetadataFile(file: HubFile): boolean {
     ) ||
     name.startsWith('license') ||
     name.startsWith('tokenizer')
+  )
+}
+
+const fitRank = { unknown: 0, does_not_fit: 1, tight: 2, fits: 3 }
+
+function bestHardwareFit(group: WeightGroup) {
+  return [...group.compatibility].sort(
+    (left, right) => fitRank[right.status] - fitRank[left.status]
+      || Number(right.is_primary) - Number(left.is_primary)
+      || right.available_bytes - left.available_bytes,
+  )[0]
+}
+
+function fitLabel(status: WeightGroup['compatibility'][number]['status']): string {
+  if (status === 'fits') return 'Fits with 20% headroom'
+  if (status === 'tight') return 'Weights fit; runtime headroom is tight'
+  if (status === 'does_not_fit') return 'Does not fit available memory'
+  return 'Compatibility unknown'
+}
+
+function HardwareFitSummary({ group }: { group: WeightGroup }) {
+  const best = bestHardwareFit(group)
+  if (!best) return null
+  return (
+    <small className={`hardware-fit-summary ${best.status}`}>
+      {fitLabel(best.status)} · {best.rig_name}
+    </small>
   )
 }
 
@@ -326,6 +354,7 @@ export function ModelDrawer({ repoId, onClose, onQueued }: ModelDrawerProps) {
   const [exclude, setExclude] = useState('')
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set())
   const [includeMetadata, setIncludeMetadata] = useState(true)
+  const [selectedWeightGroupId, setSelectedWeightGroupId] = useState('')
   const [queuing, setQueuing] = useState(false)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
 
@@ -341,6 +370,7 @@ export function ModelDrawer({ repoId, onClose, onQueued }: ModelDrawerProps) {
     setExclude('')
     setSelectedPaths(new Set())
     setIncludeMetadata(true)
+    setSelectedWeightGroupId('')
   }, [repoId])
 
   useEffect(() => {
@@ -386,6 +416,7 @@ export function ModelDrawer({ repoId, onClose, onQueued }: ModelDrawerProps) {
   )
 
   const fileTree = useMemo(() => buildFileTree(model?.files || []), [model])
+  const selectedWeightGroup = model?.weight_groups.find((group) => group.id === selectedWeightGroupId)
 
   const selectedFiles = useMemo(() => {
     if (!model) return []
@@ -452,8 +483,9 @@ export function ModelDrawer({ repoId, onClose, onQueued }: ModelDrawerProps) {
     })
   }
 
-  function chooseWeightGroup(files: string[]) {
-    setSelectedPaths(new Set(files))
+  function chooseWeightGroup(group: WeightGroup) {
+    setSelectedPaths(new Set(group.files))
+    setSelectedWeightGroupId(group.id)
     setMode('selection')
   }
 
@@ -544,14 +576,32 @@ export function ModelDrawer({ repoId, onClose, onQueued }: ModelDrawerProps) {
                             ? 'selected'
                             : ''
                         }
-                        onClick={() => chooseWeightGroup(group.files)}
+                        onClick={() => chooseWeightGroup(group)}
                       >
                         <Boxes size={14} />
-                        <span><strong>{group.label}</strong><small>{group.files.length} file{group.files.length === 1 ? '' : 's'}</small></span>
+                        <span>
+                          <strong>{group.label}</strong>
+                          <small>{group.files.length} file{group.files.length === 1 ? '' : 's'}</small>
+                          <HardwareFitSummary group={group} />
+                        </span>
                         <em>{formatBytes(group.total_bytes)}</em>
                       </button>
                     ))}
                   </div>
+                  {model.hardware_rig_count === 0 && (
+                    <p className="hardware-fit-empty">Add a rig in <a href="/#/settings">My hardware</a> to check whether each weight set fits.</p>
+                  )}
+                  {selectedWeightGroup && selectedWeightGroup.compatibility.length > 0 && (
+                    <div className="hardware-fit-panel">
+                      <strong>{selectedWeightGroup.label} on my hardware</strong>
+                      {selectedWeightGroup.compatibility.map((evaluation) => (
+                        <div key={evaluation.rig_id} className={`hardware-fit-row ${evaluation.status}`}>
+                          <span><strong>{evaluation.rig_name}</strong><small>{fitLabel(evaluation.status)}{evaluation.target ? ` · ${evaluation.target}` : ''}</small></span>
+                          <em>{formatBytes(evaluation.required_bytes)} needed / {formatBytes(evaluation.available_bytes)}</em>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
               <div className="download-mode-grid" role="radiogroup" aria-label="Download contents">
