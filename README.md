@@ -154,7 +154,38 @@ docker compose -f docker-compose.yml -f docker-compose.postgres.yml up --build -
 
 The overlay stores PostgreSQL data in the `postgres-data` named volume and waits for the
 database health check before starting HuggingHack. Back it up separately from `./data`.
-Switching `DATABASE_URL` does not copy an existing SQLite installation into PostgreSQL.
+
+### Migrate an existing SQLite database
+
+Do not start HuggingHack against PostgreSQL until the migration is complete. Build the new
+image, start only PostgreSQL, stop the old application, and run the one-shot migration command:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.postgres.yml build hugginghack
+docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d postgres
+docker compose -f docker-compose.yml -f docker-compose.postgres.yml stop hugginghack
+docker compose -f docker-compose.yml -f docker-compose.postgres.yml run --rm --no-deps hugginghack python -m app.migrate_database --source /data/hugginghack.sqlite3 --backup /data/hugginghack.pre-postgres-20260731.sqlite3
+```
+
+Use the actual cutover date in the backup filename. The command:
+
+- uses SQLite's backup API so committed WAL data is included;
+- never changes the source database or overwrites an existing backup;
+- upgrades a temporary copy to the current schema;
+- refuses a PostgreSQL target that already contains application data;
+- copies stable IDs and foreign keys in one PostgreSQL transaction; and
+- compares every persistent row before committing.
+
+Sessions and unfinished OIDC login states are intentionally not copied, so users must sign in
+again. Keep the dated SQLite backup until PostgreSQL backups have been created and restored in
+a test environment. After a successful migration, start the application:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d hugginghack
+```
+
+If the existing installation used disabled authentication and will switch to Pocket ID, first
+follow the identity-linking note in the Pocket ID section so existing ownership is retained.
 
 ## Accounts, saved models, and uploads
 
