@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   AlertCircle,
   ArrowDownToLine,
   Ban,
   Box,
-  CalendarClock,
   Check,
   ChevronDown,
   CircleX,
@@ -37,13 +36,13 @@ import {
 import { api } from './api'
 import { AccountAdmin, AuthScreen, SavedPage, UploadsPage } from './components/AccountPages'
 import { LocalDrawer, ModelDrawer } from './components/Drawers'
+import { DownloadWindowSettings } from './components/DownloadWindowSettings'
 import { HardwareSection } from './components/HardwareSection'
 import { HubModelRow, LocalModelRow } from './components/RepositoryRows'
 import Shell from './components/Shell'
 import type {
   AuthStatus,
   DownloadJob,
-  DownloadSchedule,
   Health,
   HubModel,
   LocalModel,
@@ -899,32 +898,9 @@ function SettingsPage({
   onToast: ToastHandler
 }) {
   const [health, setHealth] = useState<Health | null>(null)
-  const [downloadSchedule, setDownloadSchedule] = useState<DownloadSchedule | null>(null)
-  const [savingSchedule, setSavingSchedule] = useState(false)
   useEffect(() => {
     api.health().then(setHealth).catch(() => undefined)
-    api.downloadSettings().then(setDownloadSchedule).catch(() => undefined)
   }, [])
-  async function saveSchedule(event: FormEvent) {
-    event.preventDefault()
-    if (!downloadSchedule) return
-    setSavingSchedule(true)
-    try {
-      const updated = await api.updateDownloadSettings({
-        enabled: downloadSchedule.enabled,
-        timezone: downloadSchedule.timezone,
-        weekdays: downloadSchedule.weekdays,
-        start_time: downloadSchedule.start_time,
-        end_time: downloadSchedule.end_time,
-      })
-      setDownloadSchedule(updated)
-      onToast('Download window updated.')
-    } catch (reason) {
-      onToast(reason instanceof Error ? reason.message : 'Unable to update download window', 'error')
-    } finally {
-      setSavingSchedule(false)
-    }
-  }
   const objectStorageName = health?.object_storage.provider === 'garage' ? 'Garage' : 'S3'
   return (
     <div className="standard-page settings-page">
@@ -1049,71 +1025,7 @@ function SettingsPage({
             <code>{'RUNTIME_TARGETS_JSON=[...]\nRUNTIME_API_TOKEN=use-a-long-random-secret'}</code>
           </div>
         </section>
-        <section className="settings-section download-window-settings">
-          <div className="settings-section-title">
-            <CalendarClock size={20} />
-            <div>
-              <h2>Download window</h2>
-              <p>Limit Hub transfers to a weekly browser-timezone schedule.</p>
-            </div>
-          </div>
-          {downloadSchedule && (
-            <form onSubmit={saveSchedule}>
-              <label className="safety-toggle">
-                <input
-                  type="checkbox"
-                  checked={downloadSchedule.enabled}
-                  disabled={user.role !== 'admin'}
-                  onChange={(event) => setDownloadSchedule({ ...downloadSchedule, enabled: event.target.checked })}
-                />
-                <span><strong>Enforce download window</strong><small>Active transfers pause at closing and resume at opening.</small></span>
-              </label>
-              <div className="weekday-picker" aria-label="Download weekdays">
-                {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((label, day) => (
-                  <button
-                    type="button"
-                    key={label}
-                    disabled={user.role !== 'admin'}
-                    className={downloadSchedule.weekdays.includes(day) ? 'selected' : ''}
-                    onClick={() => setDownloadSchedule({
-                      ...downloadSchedule,
-                      weekdays: downloadSchedule.weekdays.includes(day)
-                        ? downloadSchedule.weekdays.filter((value) => value !== day)
-                        : [...downloadSchedule.weekdays, day].sort(),
-                    })}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <div className="field-pair">
-                <label>Start<input type="time" value={downloadSchedule.start_time} disabled={user.role !== 'admin'} onChange={(event) => setDownloadSchedule({ ...downloadSchedule, start_time: event.target.value })} /></label>
-                <label>End<input type="time" value={downloadSchedule.end_time} disabled={user.role !== 'admin'} onChange={(event) => setDownloadSchedule({ ...downloadSchedule, end_time: event.target.value })} /></label>
-              </div>
-              <label>
-                Timezone
-                <span className="timezone-field">
-                  <input value={downloadSchedule.timezone} readOnly />
-                  {user.role === 'admin' && (
-                    <button type="button" className="secondary-button" onClick={() => setDownloadSchedule({
-                      ...downloadSchedule,
-                      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-                    })}>Use this browser</button>
-                  )}
-                </span>
-              </label>
-              <p className={downloadSchedule.window_open ? 'good-text' : ''}>
-                Window is currently {downloadSchedule.window_open ? 'open' : 'closed'} · overnight ranges are supported.
-              </p>
-              {user.role === 'admin' && (
-                <button className="secondary-button" disabled={savingSchedule}>
-                  {savingSchedule ? <LoaderCircle size={15} className="spin" /> : <CalendarClock size={15} />}
-                  Save download window
-                </button>
-              )}
-            </form>
-          )}
-        </section>
+        <DownloadWindowSettings user={user} onToast={onToast} />
         <HardwareSection onToast={onToast} />
         <AccountAdmin user={user} authStatus={authStatus} onToast={onToast} />
       </div>
