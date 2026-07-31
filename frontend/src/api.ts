@@ -7,6 +7,7 @@ import type {
   Health,
   HubModel,
   HubModelDetails,
+  HardwareCatalog,
   HardwareRig,
   HardwareRigInput,
   LocalModel,
@@ -77,6 +78,7 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify(payload),
     }),
+  hardwareCatalog: () => request<HardwareCatalog>('/api/hardware/catalog'),
   hardwareRigs: () => request<{ items: HardwareRig[] }>('/api/hardware/rigs'),
   createHardwareRig: (payload: HardwareRigInput) =>
     request<HardwareRig>('/api/hardware/rigs', {

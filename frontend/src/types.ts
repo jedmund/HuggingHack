@@ -93,6 +93,25 @@ export interface HubModelDetails extends HubModel {
 
 export type HardwareComponentKind = 'cpu' | 'gpu' | 'apple_silicon'
 
+export interface HardwareCatalogItem {
+  id: string
+  kind: HardwareComponentKind
+  category: 'CPU' | 'GPU' | 'Apple Silicon'
+  vendor: string
+  model: string
+  memory_gb: number[]
+  owners: number
+}
+
+export interface HardwareCatalog {
+  source: {
+    name: string
+    url: string
+    retrieved_at: string
+  }
+  items: HardwareCatalogItem[]
+}
+
 export interface HardwareComponent {
   id: string
   rig_id: string

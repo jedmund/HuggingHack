@@ -1,0 +1,2749 @@
+{
+  "source": {
+    "name": "Hugging Face Hardware",
+    "url": "https://huggingface.co/hardware?view=table",
+    "retrieved_at": "2026-07-31T20:26:43.560Z"
+  },
+  "items": [
+    {
+      "id": "gpu-nvidia-rtx-3060",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 3060",
+      "memory_gb": [
+        8,
+        12
+      ],
+      "owners": 20433
+    },
+    {
+      "id": "gpu-nvidia-rtx-3090",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 3090",
+      "memory_gb": [
+        24
+      ],
+      "owners": 17080
+    },
+    {
+      "id": "gpu-nvidia-rtx-4090",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 4090",
+      "memory_gb": [
+        24
+      ],
+      "owners": 15666
+    },
+    {
+      "id": "apple-silicon-apple-apple-m4",
+      "kind": "apple_silicon",
+      "category": "Apple Silicon",
+      "vendor": "Apple",
+      "model": "Apple M4",
+      "memory_gb": [
+        16,
+        24,
+        32
+      ],
+      "owners": 15555
+    },
+    {
+      "id": "gpu-nvidia-rtx-5090",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 5090",
+      "memory_gb": [
+        32
+      ],
+      "owners": 14855
+    },
+    {
+      "id": "apple-silicon-apple-apple-m4-pro",
+      "kind": "apple_silicon",
+      "category": "Apple Silicon",
+      "vendor": "Apple",
+      "model": "Apple M4 Pro",
+      "memory_gb": [
+        24,
+        48,
+        64
+      ],
+      "owners": 13492
+    },
+    {
+      "id": "cpu-amd-ryzen-zen-3-5000-ryzen-7",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "AMD",
+      "model": "Ryzen Zen 3 5000 (Ryzen 7)",
+      "memory_gb": [],
+      "owners": 12583
+    },
+    {
+      "id": "cpu-amd-ryzen-zen-5-9000-ryzen-9",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "AMD",
+      "model": "Ryzen Zen 5 9000 (Ryzen 9)",
+      "memory_gb": [],
+      "owners": 12444
+    },
+    {
+      "id": "cpu-amd-ryzen-zen-4-7000-ryzen-7",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "AMD",
+      "model": "Ryzen Zen 4 7000 (Ryzen 7)",
+      "memory_gb": [],
+      "owners": 12135
+    },
+    {
+      "id": "gpu-nvidia-rtx-5070-ti",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 5070 Ti",
+      "memory_gb": [
+        16
+      ],
+      "owners": 11990
+    },
+    {
+      "id": "gpu-nvidia-rtx-5060-ti",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 5060 Ti",
+      "memory_gb": [
+        8,
+        16
+      ],
+      "owners": 11809
+    },
+    {
+      "id": "cpu-amd-ryzen-zen-3-5000-ryzen-5",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "AMD",
+      "model": "Ryzen Zen 3 5000 (Ryzen 5)",
+      "memory_gb": [],
+      "owners": 11135
+    },
+    {
+      "id": "cpu-intel-intel-core-13th-generation-i9",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "Intel",
+      "model": "Intel Core 13th Generation (i9)",
+      "memory_gb": [],
+      "owners": 10866
+    },
+    {
+      "id": "apple-silicon-apple-apple-m1-pro",
+      "kind": "apple_silicon",
+      "category": "Apple Silicon",
+      "vendor": "Apple",
+      "model": "Apple M1 Pro",
+      "memory_gb": [
+        16,
+        24,
+        32
+      ],
+      "owners": 9730
+    },
+    {
+      "id": "apple-silicon-apple-apple-m1",
+      "kind": "apple_silicon",
+      "category": "Apple Silicon",
+      "vendor": "Apple",
+      "model": "Apple M1",
+      "memory_gb": [
+        8,
+        16
+      ],
+      "owners": 9508
+    },
+    {
+      "id": "cpu-intel-intel-core-12th-generation-i5",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "Intel",
+      "model": "Intel Core 12th Generation (i5)",
+      "memory_gb": [],
+      "owners": 9444
+    },
+    {
+      "id": "cpu-intel-intel-core-13th-generation-i5",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "Intel",
+      "model": "Intel Core 13th Generation (i5)",
+      "memory_gb": [],
+      "owners": 9148
+    },
+    {
+      "id": "cpu-intel-intel-core-13th-generation-i7",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "Intel",
+      "model": "Intel Core 13th Generation (i7)",
+      "memory_gb": [],
+      "owners": 9131
+    },
+    {
+      "id": "apple-silicon-apple-apple-m4-max",
+      "kind": "apple_silicon",
+      "category": "Apple Silicon",
+      "vendor": "Apple",
+      "model": "Apple M4 Max",
+      "memory_gb": [
+        36,
+        48,
+        64,
+        128
+      ],
+      "owners": 8853
+    },
+    {
+      "id": "cpu-intel-intel-core-10th-generation-i7",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "Intel",
+      "model": "Intel Core 10th Generation (i7)",
+      "memory_gb": [],
+      "owners": 8663
+    },
+    {
+      "id": "cpu-amd-ryzen-zen-5-9000-ryzen-7",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "AMD",
+      "model": "Ryzen Zen 5 9000 (Ryzen 7)",
+      "memory_gb": [],
+      "owners": 8021
+    },
+    {
+      "id": "gpu-nvidia-rtx-5080",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 5080",
+      "memory_gb": [
+        16
+      ],
+      "owners": 7985
+    },
+    {
+      "id": "gpu-nvidia-rtx-3080",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 3080",
+      "memory_gb": [
+        10,
+        12
+      ],
+      "owners": 7874
+    },
+    {
+      "id": "cpu-intel-intel-core-14th-generation-i7",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "Intel",
+      "model": "Intel Core 14th Generation (i7)",
+      "memory_gb": [],
+      "owners": 7793
+    },
+    {
+      "id": "gpu-nvidia-rtx-4060",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 4060",
+      "memory_gb": [
+        8
+      ],
+      "owners": 7775
+    },
+    {
+      "id": "cpu-intel-intel-core-12th-generation-i7",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "Intel",
+      "model": "Intel Core 12th Generation (i7)",
+      "memory_gb": [],
+      "owners": 7730
+    },
+    {
+      "id": "cpu-intel-intel-core-10th-generation-i5",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "Intel",
+      "model": "Intel Core 10th Generation (i5)",
+      "memory_gb": [],
+      "owners": 7707
+    },
+    {
+      "id": "cpu-amd-ryzen-zen-4-7000-ryzen-9",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "AMD",
+      "model": "Ryzen Zen 4 7000 (Ryzen 9)",
+      "memory_gb": [],
+      "owners": 7570
+    },
+    {
+      "id": "cpu-amd-ryzen-zen-3-5000-ryzen-9",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "AMD",
+      "model": "Ryzen Zen 3 5000 (Ryzen 9)",
+      "memory_gb": [],
+      "owners": 7216
+    },
+    {
+      "id": "gpu-nvidia-rtx-3070",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 3070",
+      "memory_gb": [
+        8
+      ],
+      "owners": 6943
+    },
+    {
+      "id": "apple-silicon-apple-apple-m1-max",
+      "kind": "apple_silicon",
+      "category": "Apple Silicon",
+      "vendor": "Apple",
+      "model": "Apple M1 Max",
+      "memory_gb": [
+        16,
+        24,
+        32,
+        64
+      ],
+      "owners": 6880
+    },
+    {
+      "id": "gpu-nvidia-rtx-4060-ti",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 4060 Ti",
+      "memory_gb": [
+        8,
+        16
+      ],
+      "owners": 6865
+    },
+    {
+      "id": "gpu-nvidia-rtx-4070",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 4070",
+      "memory_gb": [
+        12
+      ],
+      "owners": 6588
+    },
+    {
+      "id": "gpu-nvidia-gb10",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "GB10",
+      "memory_gb": [
+        128
+      ],
+      "owners": 6353
+    },
+    {
+      "id": "apple-silicon-apple-apple-m3-pro",
+      "kind": "apple_silicon",
+      "category": "Apple Silicon",
+      "vendor": "Apple",
+      "model": "Apple M3 Pro",
+      "memory_gb": [
+        18,
+        36
+      ],
+      "owners": 6139
+    },
+    {
+      "id": "gpu-nvidia-rtx-3050-mobile",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 3050 Mobile",
+      "memory_gb": [
+        4,
+        6
+      ],
+      "owners": 6120
+    },
+    {
+      "id": "apple-silicon-apple-apple-m2",
+      "kind": "apple_silicon",
+      "category": "Apple Silicon",
+      "vendor": "Apple",
+      "model": "Apple M2",
+      "memory_gb": [
+        8,
+        16,
+        24
+      ],
+      "owners": 5994
+    },
+    {
+      "id": "gpu-amd-rx-9070-xt",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "RX 9070 XT",
+      "memory_gb": [
+        16
+      ],
+      "owners": 5861
+    },
+    {
+      "id": "gpu-nvidia-rtx-4060-laptop",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 4060 Laptop",
+      "memory_gb": [
+        8
+      ],
+      "owners": 5664
+    },
+    {
+      "id": "gpu-nvidia-rtx-3060-ti",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 3060 Ti",
+      "memory_gb": [
+        8
+      ],
+      "owners": 5638
+    },
+    {
+      "id": "gpu-nvidia-rtx-5070",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 5070",
+      "memory_gb": [
+        12
+      ],
+      "owners": 5322
+    },
+    {
+      "id": "gpu-nvidia-rtx-4070-ti-super",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 4070 Ti Super",
+      "memory_gb": [
+        16
+      ],
+      "owners": 5197
+    },
+    {
+      "id": "apple-silicon-apple-apple-m3-max",
+      "kind": "apple_silicon",
+      "category": "Apple Silicon",
+      "vendor": "Apple",
+      "model": "Apple M3 Max",
+      "memory_gb": [
+        36,
+        48,
+        64,
+        96,
+        128
+      ],
+      "owners": 5137
+    },
+    {
+      "id": "cpu-intel-intel-core-ultra-7-265kf",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "Intel",
+      "model": "Intel Core Ultra 7 265KF",
+      "memory_gb": [],
+      "owners": 5124
+    },
+    {
+      "id": "cpu-amd-ryzen-zen-4-7000-ryzen-5",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "AMD",
+      "model": "Ryzen Zen 4 7000 (Ryzen 5)",
+      "memory_gb": [],
+      "owners": 5103
+    },
+    {
+      "id": "cpu-intel-intel-core-11th-generation-i7",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "Intel",
+      "model": "Intel Core 11th Generation (i7)",
+      "memory_gb": [],
+      "owners": 5074
+    },
+    {
+      "id": "apple-silicon-apple-apple-m5-max",
+      "kind": "apple_silicon",
+      "category": "Apple Silicon",
+      "vendor": "Apple",
+      "model": "Apple M5 Max",
+      "memory_gb": [
+        36,
+        48,
+        64,
+        128
+      ],
+      "owners": 4769
+    },
+    {
+      "id": "apple-silicon-apple-apple-m5",
+      "kind": "apple_silicon",
+      "category": "Apple Silicon",
+      "vendor": "Apple",
+      "model": "Apple M5",
+      "memory_gb": [
+        16,
+        24,
+        32
+      ],
+      "owners": 4767
+    },
+    {
+      "id": "gpu-nvidia-gtx-1660",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "GTX 1660",
+      "memory_gb": [
+        6
+      ],
+      "owners": 4728
+    },
+    {
+      "id": "gpu-amd-rx-7900-xtx",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "RX 7900 XTX",
+      "memory_gb": [
+        24
+      ],
+      "owners": 4707
+    },
+    {
+      "id": "gpu-nvidia-gtx-1650-mobile",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "GTX 1650 Mobile",
+      "memory_gb": [
+        4
+      ],
+      "owners": 4680
+    },
+    {
+      "id": "apple-silicon-apple-apple-m5-pro",
+      "kind": "apple_silicon",
+      "category": "Apple Silicon",
+      "vendor": "Apple",
+      "model": "Apple M5 Pro",
+      "memory_gb": [
+        24,
+        36,
+        48,
+        64
+      ],
+      "owners": 4630
+    },
+    {
+      "id": "cpu-amd-ryzen-zen-2-3000-ryzen-5",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "AMD",
+      "model": "Ryzen Zen 2 3000 (Ryzen 5)",
+      "memory_gb": [],
+      "owners": 4621
+    },
+    {
+      "id": "cpu-intel-intel-core-11th-generation-i5",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "Intel",
+      "model": "Intel Core 11th Generation (i5)",
+      "memory_gb": [],
+      "owners": 4572
+    },
+    {
+      "id": "gpu-nvidia-rtx-4070-super",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 4070 Super",
+      "memory_gb": [
+        12
+      ],
+      "owners": 4538
+    },
+    {
+      "id": "apple-silicon-apple-apple-m2-pro",
+      "kind": "apple_silicon",
+      "category": "Apple Silicon",
+      "vendor": "Apple",
+      "model": "Apple M2 Pro",
+      "memory_gb": [
+        16,
+        24,
+        32
+      ],
+      "owners": 4504
+    },
+    {
+      "id": "gpu-nvidia-rtx-4080",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 4080",
+      "memory_gb": [
+        16
+      ],
+      "owners": 4324
+    },
+    {
+      "id": "gpu-nvidia-rtx-4070-ti",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 4070 Ti",
+      "memory_gb": [
+        12
+      ],
+      "owners": 4319
+    },
+    {
+      "id": "gpu-nvidia-rtx-4080-super",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 4080 SUPER",
+      "memory_gb": [
+        16
+      ],
+      "owners": 4293
+    },
+    {
+      "id": "gpu-nvidia-rtx-3080-ti",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 3080 Ti",
+      "memory_gb": [
+        12
+      ],
+      "owners": 4121
+    },
+    {
+      "id": "gpu-nvidia-h100",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "H100",
+      "memory_gb": [
+        80
+      ],
+      "owners": 4099
+    },
+    {
+      "id": "gpu-amd-ryzen-ai-max-plus-395",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "Ryzen AI Max+ 395",
+      "memory_gb": [
+        64,
+        96,
+        128
+      ],
+      "owners": 4072
+    },
+    {
+      "id": "apple-silicon-apple-apple-m3",
+      "kind": "apple_silicon",
+      "category": "Apple Silicon",
+      "vendor": "Apple",
+      "model": "Apple M3",
+      "memory_gb": [
+        8,
+        16,
+        24
+      ],
+      "owners": 3912
+    },
+    {
+      "id": "gpu-nvidia-a100",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "A100",
+      "memory_gb": [
+        40,
+        80
+      ],
+      "owners": 3777
+    },
+    {
+      "id": "apple-silicon-apple-apple-m2-max",
+      "kind": "apple_silicon",
+      "category": "Apple Silicon",
+      "vendor": "Apple",
+      "model": "Apple M2 Max",
+      "memory_gb": [
+        32,
+        64,
+        96
+      ],
+      "owners": 3601
+    },
+    {
+      "id": "gpu-nvidia-t4",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "T4",
+      "memory_gb": [
+        16
+      ],
+      "owners": 3539
+    },
+    {
+      "id": "gpu-nvidia-rtx-pro-6000-ws",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX PRO 6000 WS",
+      "memory_gb": [
+        96
+      ],
+      "owners": 3529
+    },
+    {
+      "id": "gpu-nvidia-gtx-1060",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "GTX 1060",
+      "memory_gb": [
+        3,
+        6
+      ],
+      "owners": 3431
+    },
+    {
+      "id": "apple-silicon-apple-apple-m3-ultra",
+      "kind": "apple_silicon",
+      "category": "Apple Silicon",
+      "vendor": "Apple",
+      "model": "Apple M3 Ultra",
+      "memory_gb": [
+        96,
+        256,
+        512
+      ],
+      "owners": 3364
+    },
+    {
+      "id": "cpu-intel-intel-core-10th-generation-i3",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "Intel",
+      "model": "Intel Core 10th Generation (i3)",
+      "memory_gb": [],
+      "owners": 3313
+    },
+    {
+      "id": "cpu-intel-intel-core-12th-generation-i9",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "Intel",
+      "model": "Intel Core 12th Generation (i9)",
+      "memory_gb": [],
+      "owners": 3257
+    },
+    {
+      "id": "gpu-nvidia-rtx-3070-ti",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 3070 Ti",
+      "memory_gb": [
+        8
+      ],
+      "owners": 3239
+    },
+    {
+      "id": "gpu-nvidia-rtx-4050-laptop",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 4050 Laptop",
+      "memory_gb": [
+        6
+      ],
+      "owners": 3200
+    },
+    {
+      "id": "gpu-nvidia-rtx-5060",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 5060",
+      "memory_gb": [
+        8
+      ],
+      "owners": 3197
+    },
+    {
+      "id": "cpu-amd-ryzen-zen-5-9000-ryzen-5",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "AMD",
+      "model": "Ryzen Zen 5 9000 (Ryzen 5)",
+      "memory_gb": [],
+      "owners": 3184
+    },
+    {
+      "id": "gpu-nvidia-gtx-1070-ti",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "GTX 1070 Ti",
+      "memory_gb": [
+        8
+      ],
+      "owners": 3183
+    },
+    {
+      "id": "cpu-amd-ryzen-zen-2-3000-ryzen-7",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "AMD",
+      "model": "Ryzen Zen 2 3000 (Ryzen 7)",
+      "memory_gb": [],
+      "owners": 3176
+    },
+    {
+      "id": "cpu-intel-intel-core-10th-generation-i9",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "Intel",
+      "model": "Intel Core 10th Generation (i9)",
+      "memory_gb": [],
+      "owners": 2941
+    },
+    {
+      "id": "gpu-nvidia-gtx-1080-ti",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "GTX 1080 Ti",
+      "memory_gb": [
+        11
+      ],
+      "owners": 2776
+    },
+    {
+      "id": "gpu-nvidia-gtx-1050-ti",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "GTX 1050 Ti",
+      "memory_gb": [
+        4
+      ],
+      "owners": 2763
+    },
+    {
+      "id": "gpu-nvidia-rtx-2080-ti",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 2080 Ti",
+      "memory_gb": [
+        11,
+        22
+      ],
+      "owners": 2715
+    },
+    {
+      "id": "gpu-amd-rx-6700-xt",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "RX 6700 XT",
+      "memory_gb": [
+        12
+      ],
+      "owners": 2689
+    },
+    {
+      "id": "gpu-nvidia-rtx-2070-super",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 2070 SUPER",
+      "memory_gb": [
+        8
+      ],
+      "owners": 2665
+    },
+    {
+      "id": "gpu-nvidia-rtx-3090-ti",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 3090 Ti",
+      "memory_gb": [
+        24
+      ],
+      "owners": 2620
+    },
+    {
+      "id": "gpu-amd-rx-7800-xt",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "RX 7800 XT",
+      "memory_gb": [
+        16
+      ],
+      "owners": 2618
+    },
+    {
+      "id": "cpu-amd-ryzen-zen-2-3000-ryzen-9",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "AMD",
+      "model": "Ryzen Zen 2 3000 (Ryzen 9)",
+      "memory_gb": [],
+      "owners": 2507
+    },
+    {
+      "id": "gpu-nvidia-v100",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "V100",
+      "memory_gb": [
+        16,
+        32
+      ],
+      "owners": 2505
+    },
+    {
+      "id": "gpu-nvidia-rtx-3060-mobile",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 3060 Mobile",
+      "memory_gb": [
+        6
+      ],
+      "owners": 2477
+    },
+    {
+      "id": "gpu-nvidia-rtx-2060",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 2060",
+      "memory_gb": [
+        6
+      ],
+      "owners": 2428
+    },
+    {
+      "id": "gpu-nvidia-rtx-2070",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 2070",
+      "memory_gb": [
+        8
+      ],
+      "owners": 2366
+    },
+    {
+      "id": "cpu-intel-xeon-4th-generation-sapphire-rapids",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "Intel",
+      "model": "Xeon 4th Generation (Sapphire Rapids)",
+      "memory_gb": [],
+      "owners": 2337
+    },
+    {
+      "id": "cpu-intel-xeon-e5v4-broadwell",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "Intel",
+      "model": "Xeon E5v4 (Broadwell)",
+      "memory_gb": [],
+      "owners": 2336
+    },
+    {
+      "id": "gpu-amd-rx-6800",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "RX 6800",
+      "memory_gb": [
+        16
+      ],
+      "owners": 2230
+    },
+    {
+      "id": "gpu-amd-rx-6600",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "RX 6600",
+      "memory_gb": [
+        8
+      ],
+      "owners": 2064
+    },
+    {
+      "id": "gpu-amd-rx-7900-xt",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "RX 7900 XT",
+      "memory_gb": [
+        20
+      ],
+      "owners": 2043
+    },
+    {
+      "id": "gpu-nvidia-h200",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "H200",
+      "memory_gb": [
+        141
+      ],
+      "owners": 2043
+    },
+    {
+      "id": "gpu-nvidia-rtx-6000-ada",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 6000 Ada",
+      "memory_gb": [
+        48
+      ],
+      "owners": 1939
+    },
+    {
+      "id": "cpu-intel-xeon-2th-generation-cascade-lake",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "Intel",
+      "model": "Xeon 2th Generation (Cascade Lake)",
+      "memory_gb": [],
+      "owners": 1921
+    },
+    {
+      "id": "cpu-amd-ryzen-7-3800x-16",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "AMD",
+      "model": "Ryzen 7 3800X (16)",
+      "memory_gb": [],
+      "owners": 1902
+    },
+    {
+      "id": "gpu-nvidia-rtx-2080",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 2080",
+      "memory_gb": [
+        8
+      ],
+      "owners": 1809
+    },
+    {
+      "id": "gpu-nvidia-rtx-4070-mobile",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 4070 Mobile",
+      "memory_gb": [
+        8
+      ],
+      "owners": 1785
+    },
+    {
+      "id": "gpu-nvidia-rtx-pro-6000-max-q",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX PRO 6000 Max-Q",
+      "memory_gb": [
+        96
+      ],
+      "owners": 1751
+    },
+    {
+      "id": "gpu-amd-r9700-pro",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "R9700 PRO",
+      "memory_gb": [
+        32
+      ],
+      "owners": 1704
+    },
+    {
+      "id": "cpu-intel-intel-core-ultra-9-275hx",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "Intel",
+      "model": "Intel Core Ultra 9 275HX",
+      "memory_gb": [],
+      "owners": 1675
+    },
+    {
+      "id": "cpu-intel-xeon-e5v3-haswell",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "Intel",
+      "model": "Xeon E5v3 (Haswell)",
+      "memory_gb": [],
+      "owners": 1605
+    },
+    {
+      "id": "gpu-nvidia-rtx-3070-ti-mobile",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 3070 Ti Mobile",
+      "memory_gb": [
+        8
+      ],
+      "owners": 1554
+    },
+    {
+      "id": "cpu-intel-intel-core-11th-generation-i9",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "Intel",
+      "model": "Intel Core 11th Generation (i9)",
+      "memory_gb": [],
+      "owners": 1541
+    },
+    {
+      "id": "gpu-amd-rx-9060-xt",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "RX 9060 XT",
+      "memory_gb": [
+        8,
+        16
+      ],
+      "owners": 1493
+    },
+    {
+      "id": "gpu-nvidia-rtx-4070-laptop",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 4070 Laptop",
+      "memory_gb": [
+        8
+      ],
+      "owners": 1484
+    },
+    {
+      "id": "gpu-nvidia-rtx-2060-mobile",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 2060 Mobile",
+      "memory_gb": [
+        6
+      ],
+      "owners": 1482
+    },
+    {
+      "id": "gpu-amd-rx-6950-xt",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "RX 6950 XT",
+      "memory_gb": [
+        16
+      ],
+      "owners": 1446
+    },
+    {
+      "id": "gpu-nvidia-rtx-a6000",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX A6000",
+      "memory_gb": [
+        48
+      ],
+      "owners": 1427
+    },
+    {
+      "id": "gpu-amd-rx-7600-xt",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "RX 7600 XT",
+      "memory_gb": [
+        8,
+        16
+      ],
+      "owners": 1364
+    },
+    {
+      "id": "cpu-amd-ryzen-ai-300-ryzen-ai-9-hx",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "AMD",
+      "model": "Ryzen AI 300 (Ryzen AI 9 HX)",
+      "memory_gb": [],
+      "owners": 1314
+    },
+    {
+      "id": "gpu-nvidia-rtx-a4000",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX A4000",
+      "memory_gb": [
+        16
+      ],
+      "owners": 1277
+    },
+    {
+      "id": "cpu-intel-xeon-e5v2-ivy-bridge",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "Intel",
+      "model": "Xeon E5v2 (Ivy Bridge)",
+      "memory_gb": [],
+      "owners": 1252
+    },
+    {
+      "id": "gpu-nvidia-p40",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "P40",
+      "memory_gb": [
+        24
+      ],
+      "owners": 1250
+    },
+    {
+      "id": "cpu-intel-xeon-3th-generation-ice-lake",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "Intel",
+      "model": "Xeon 3th Generation (Ice Lake)",
+      "memory_gb": [],
+      "owners": 1244
+    },
+    {
+      "id": "gpu-nvidia-l40s",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "L40s",
+      "memory_gb": [
+        48
+      ],
+      "owners": 1242
+    },
+    {
+      "id": "gpu-amd-rx-9070",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "RX 9070",
+      "memory_gb": [
+        16
+      ],
+      "owners": 1174
+    },
+    {
+      "id": "cpu-amd-ryzen-zen-2-3000-ryzen-3",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "AMD",
+      "model": "Ryzen Zen 2 3000 (Ryzen 3)",
+      "memory_gb": [],
+      "owners": 1163
+    },
+    {
+      "id": "gpu-nvidia-b200",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "B200",
+      "memory_gb": [
+        192
+      ],
+      "owners": 1157
+    },
+    {
+      "id": "gpu-intel-arc-b580",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "Intel",
+      "model": "Arc B580",
+      "memory_gb": [
+        12
+      ],
+      "owners": 1133
+    },
+    {
+      "id": "gpu-nvidia-l4",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "L4",
+      "memory_gb": [
+        24
+      ],
+      "owners": 1122
+    },
+    {
+      "id": "gpu-intel-arc-a770",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "Intel",
+      "model": "Arc A770",
+      "memory_gb": [
+        8,
+        16
+      ],
+      "owners": 1078
+    },
+    {
+      "id": "gpu-nvidia-rtx-5070-mobile",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 5070 Mobile",
+      "memory_gb": [
+        8
+      ],
+      "owners": 1078
+    },
+    {
+      "id": "apple-silicon-apple-apple-m2-ultra",
+      "kind": "apple_silicon",
+      "category": "Apple Silicon",
+      "vendor": "Apple",
+      "model": "Apple M2 Ultra",
+      "memory_gb": [
+        64,
+        96,
+        128,
+        192
+      ],
+      "owners": 1056
+    },
+    {
+      "id": "cpu-amd-epyc-4th-generation-zen-4-genoa",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "AMD",
+      "model": "EPYC 4th Generation Zen 4 (Genoa)",
+      "memory_gb": [],
+      "owners": 983
+    },
+    {
+      "id": "gpu-nvidia-rtx-a2000",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX A2000",
+      "memory_gb": [
+        6,
+        12
+      ],
+      "owners": 955
+    },
+    {
+      "id": "cpu-intel-intel-core-12th-generation-i3",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "Intel",
+      "model": "Intel Core 12th Generation (i3)",
+      "memory_gb": [],
+      "owners": 947
+    },
+    {
+      "id": "apple-silicon-apple-apple-m1-ultra",
+      "kind": "apple_silicon",
+      "category": "Apple Silicon",
+      "vendor": "Apple",
+      "model": "Apple M1 Ultra",
+      "memory_gb": [
+        16,
+        24,
+        32,
+        64,
+        96,
+        128
+      ],
+      "owners": 926
+    },
+    {
+      "id": "gpu-nvidia-rtx-5080-mobile",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 5080 Mobile",
+      "memory_gb": [
+        16
+      ],
+      "owners": 913
+    },
+    {
+      "id": "gpu-nvidia-rtx-4000-ada",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 4000 Ada",
+      "memory_gb": [
+        20
+      ],
+      "owners": 903
+    },
+    {
+      "id": "gpu-amd-rx-6600-xt",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "RX 6600 XT",
+      "memory_gb": [
+        8
+      ],
+      "owners": 867
+    },
+    {
+      "id": "gpu-amd-rx-5500-xt",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "RX 5500 XT",
+      "memory_gb": [
+        4,
+        8
+      ],
+      "owners": 859
+    },
+    {
+      "id": "gpu-nvidia-rtx-2000-ada",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 2000 Ada",
+      "memory_gb": [
+        16
+      ],
+      "owners": 847
+    },
+    {
+      "id": "cpu-amd-ryzen-threadripper-zen-4-7000-storm-peak",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "AMD",
+      "model": "Ryzen Threadripper Zen 4 7000 (Storm Peak)",
+      "memory_gb": [],
+      "owners": 841
+    },
+    {
+      "id": "gpu-nvidia-jetson-orin-nano-8gb",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "Jetson Orin Nano 8GB",
+      "memory_gb": [
+        8
+      ],
+      "owners": 834
+    },
+    {
+      "id": "gpu-nvidia-rtx-5060-mobile",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 5060 Mobile",
+      "memory_gb": [
+        8
+      ],
+      "owners": 813
+    },
+    {
+      "id": "gpu-nvidia-rtx-5090-mobile",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 5090 Mobile",
+      "memory_gb": [
+        24
+      ],
+      "owners": 796
+    },
+    {
+      "id": "cpu-amd-epyc-2th-generation-zen-2-rome",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "AMD",
+      "model": "EPYC 2th Generation Zen 2 (Rome)",
+      "memory_gb": [],
+      "owners": 789
+    },
+    {
+      "id": "gpu-nvidia-rtx-4090-mobile",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 4090 Mobile",
+      "memory_gb": [
+        16
+      ],
+      "owners": 778
+    },
+    {
+      "id": "gpu-nvidia-rtx-a5000",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX A5000",
+      "memory_gb": [
+        8,
+        12,
+        24
+      ],
+      "owners": 775
+    },
+    {
+      "id": "gpu-intel-arc-a750",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "Intel",
+      "model": "Arc A750",
+      "memory_gb": [
+        8
+      ],
+      "owners": 772
+    },
+    {
+      "id": "gpu-nvidia-p100",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "P100",
+      "memory_gb": [
+        16
+      ],
+      "owners": 761
+    },
+    {
+      "id": "cpu-amd-epyc-3th-generation-zen-3-milan",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "AMD",
+      "model": "EPYC 3th Generation Zen 3 (Milan)",
+      "memory_gb": [],
+      "owners": 738
+    },
+    {
+      "id": "gpu-nvidia-rtx-4080-mobile",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 4080 Mobile",
+      "memory_gb": [
+        12
+      ],
+      "owners": 738
+    },
+    {
+      "id": "cpu-amd-ryzen-threadripper-zen-5-9000-shimada-peak",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "AMD",
+      "model": "Ryzen Threadripper Zen 5 9000 (Shimada Peak)",
+      "memory_gb": [],
+      "owners": 722
+    },
+    {
+      "id": "gpu-amd-mi50",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "MI50",
+      "memory_gb": [
+        16,
+        32
+      ],
+      "owners": 717
+    },
+    {
+      "id": "cpu-amd-epyc-5th-generation-zen-5-turin",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "AMD",
+      "model": "EPYC 5th Generation Zen 5 (Turin)",
+      "memory_gb": [],
+      "owners": 706
+    },
+    {
+      "id": "gpu-nvidia-rtx-5070-ti-mobile",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 5070 Ti Mobile",
+      "memory_gb": [
+        12
+      ],
+      "owners": 705
+    },
+    {
+      "id": "gpu-nvidia-a10",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "A10",
+      "memory_gb": [
+        24
+      ],
+      "owners": 697
+    },
+    {
+      "id": "gpu-nvidia-a40",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "A40",
+      "memory_gb": [
+        48
+      ],
+      "owners": 679
+    },
+    {
+      "id": "gpu-nvidia-rtx-5000-ada",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 5000 Ada",
+      "memory_gb": [
+        32
+      ],
+      "owners": 655
+    },
+    {
+      "id": "cpu-amd-ryzen-ai-300-ryzen-ai-9",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "AMD",
+      "model": "Ryzen AI 300 (Ryzen AI 9)",
+      "memory_gb": [],
+      "owners": 640
+    },
+    {
+      "id": "cpu-intel-intel-core-13th-generation-i3",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "Intel",
+      "model": "Intel Core 13th Generation (i3)",
+      "memory_gb": [],
+      "owners": 622
+    },
+    {
+      "id": "gpu-amd-rx-7700-xt",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "RX 7700 XT",
+      "memory_gb": [
+        12
+      ],
+      "owners": 618
+    },
+    {
+      "id": "cpu-amd-ryzen-threadripper-zen-2-3000-castle-peak",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "AMD",
+      "model": "Ryzen Threadripper Zen 2 3000 (Castle Peak)",
+      "memory_gb": [],
+      "owners": 612
+    },
+    {
+      "id": "gpu-intel-arc-pro-b70",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "Intel",
+      "model": "Arc Pro B70",
+      "memory_gb": [
+        32
+      ],
+      "owners": 606
+    },
+    {
+      "id": "gpu-nvidia-rtx-3080-mobile",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 3080 Mobile",
+      "memory_gb": [
+        8,
+        16
+      ],
+      "owners": 595
+    },
+    {
+      "id": "gpu-amd-radeon-pro-vii",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "Radeon Pro VII",
+      "memory_gb": [
+        16,
+        32
+      ],
+      "owners": 594
+    },
+    {
+      "id": "cpu-amd-ryzen-ai-300-ryzen-ai-7",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "AMD",
+      "model": "Ryzen AI 300 (Ryzen AI 7)",
+      "memory_gb": [],
+      "owners": 582
+    },
+    {
+      "id": "gpu-nvidia-rtx-4090d",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 4090D",
+      "memory_gb": [
+        24,
+        48
+      ],
+      "owners": 561
+    },
+    {
+      "id": "gpu-nvidia-rtx-4090-laptop",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 4090 Laptop",
+      "memory_gb": [
+        16
+      ],
+      "owners": 546
+    },
+    {
+      "id": "gpu-nvidia-l40",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "L40",
+      "memory_gb": [
+        48
+      ],
+      "owners": 539
+    },
+    {
+      "id": "gpu-nvidia-rtx-4500-ada",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 4500 Ada",
+      "memory_gb": [
+        24
+      ],
+      "owners": 534
+    },
+    {
+      "id": "cpu-intel-intel-core-11th-generation-i3",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "Intel",
+      "model": "Intel Core 11th Generation (i3)",
+      "memory_gb": [],
+      "owners": 514
+    },
+    {
+      "id": "gpu-amd-radeon-780m",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "Radeon 780M",
+      "memory_gb": [
+        16,
+        24,
+        32,
+        48,
+        64,
+        96
+      ],
+      "owners": 511
+    },
+    {
+      "id": "cpu-intel-intel-core-ultra-7-255hx",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "Intel",
+      "model": "Intel Core Ultra 7 255HX",
+      "memory_gb": [],
+      "owners": 509
+    },
+    {
+      "id": "gpu-nvidia-jetson-agx-orin-64gb",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "Jetson AGX Orin 64GB",
+      "memory_gb": [
+        64
+      ],
+      "owners": 504
+    },
+    {
+      "id": "gpu-amd-rx-6650-xt",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "RX 6650 XT",
+      "memory_gb": [
+        8
+      ],
+      "owners": 503
+    },
+    {
+      "id": "gpu-amd-rx-7900-gre",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "RX 7900 GRE",
+      "memory_gb": [
+        16
+      ],
+      "owners": 482
+    },
+    {
+      "id": "gpu-nvidia-rtx-2060-12gb",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 2060 12GB",
+      "memory_gb": [
+        12
+      ],
+      "owners": 461
+    },
+    {
+      "id": "gpu-nvidia-rtx-4080-laptop",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 4080 Laptop",
+      "memory_gb": [
+        12
+      ],
+      "owners": 461
+    },
+    {
+      "id": "gpu-nvidia-rtx-5090-d",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 5090 D",
+      "memory_gb": [
+        32
+      ],
+      "owners": 441
+    },
+    {
+      "id": "gpu-amd-rx-6700",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "RX 6700",
+      "memory_gb": [
+        10
+      ],
+      "owners": 437
+    },
+    {
+      "id": "gpu-nvidia-quadro-p6000",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "Quadro P6000",
+      "memory_gb": [
+        24
+      ],
+      "owners": 402
+    },
+    {
+      "id": "gpu-nvidia-rtx-4000-sff-ada",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 4000 SFF Ada",
+      "memory_gb": [
+        20
+      ],
+      "owners": 401
+    },
+    {
+      "id": "gpu-intel-arc-b60",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "Intel",
+      "model": "Arc B60",
+      "memory_gb": [
+        24,
+        48
+      ],
+      "owners": 397
+    },
+    {
+      "id": "gpu-intel-arc-b50",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "Intel",
+      "model": "Arc B50",
+      "memory_gb": [
+        16
+      ],
+      "owners": 380
+    },
+    {
+      "id": "gpu-amd-mi300",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "MI300",
+      "memory_gb": [
+        192
+      ],
+      "owners": 376
+    },
+    {
+      "id": "gpu-nvidia-b300",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "B300",
+      "memory_gb": [
+        288
+      ],
+      "owners": 344
+    },
+    {
+      "id": "gpu-nvidia-gtx-1070",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "GTX 1070",
+      "memory_gb": [
+        8
+      ],
+      "owners": 325
+    },
+    {
+      "id": "gpu-qualcomm-snapdragon-x-elite-x1e-00-1de",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "Qualcomm",
+      "model": "Snapdragon X Elite X1E-00-1DE",
+      "memory_gb": [],
+      "owners": 311
+    },
+    {
+      "id": "gpu-nvidia-rtx-titan",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX Titan",
+      "memory_gb": [
+        24
+      ],
+      "owners": 306
+    },
+    {
+      "id": "gpu-nvidia-rtx-2050-mobile",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 2050 Mobile",
+      "memory_gb": [
+        4
+      ],
+      "owners": 303
+    },
+    {
+      "id": "gpu-nvidia-rtx-a2000-mobile",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX A2000 Mobile",
+      "memory_gb": [
+        4,
+        8
+      ],
+      "owners": 303
+    },
+    {
+      "id": "gpu-qualcomm-snapdragon-x-plus-x1p-64-100",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "Qualcomm",
+      "model": "Snapdragon X Plus X1P-64-100",
+      "memory_gb": [],
+      "owners": 302
+    },
+    {
+      "id": "gpu-nvidia-rtx-pro-5000",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX PRO 5000",
+      "memory_gb": [
+        48,
+        72
+      ],
+      "owners": 300
+    },
+    {
+      "id": "gpu-nvidia-rtx-2070-super-mobile",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 2070 SUPER Mobile",
+      "memory_gb": [
+        8
+      ],
+      "owners": 296
+    },
+    {
+      "id": "gpu-nvidia-gtx-1080",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "GTX 1080",
+      "memory_gb": [
+        8
+      ],
+      "owners": 288
+    },
+    {
+      "id": "gpu-nvidia-jetson-nano",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "Jetson Nano",
+      "memory_gb": [
+        4
+      ],
+      "owners": 287
+    },
+    {
+      "id": "gpu-nvidia-rtx-pro-4000",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX PRO 4000",
+      "memory_gb": [
+        24
+      ],
+      "owners": 286
+    },
+    {
+      "id": "cpu-amd-ryzen-threadripper-zen-3-5000-chagall",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "AMD",
+      "model": "Ryzen Threadripper Zen 3 5000 (Chagall)",
+      "memory_gb": [],
+      "owners": 281
+    },
+    {
+      "id": "apple-silicon-apple-apple-macbook-neo",
+      "kind": "apple_silicon",
+      "category": "Apple Silicon",
+      "vendor": "Apple",
+      "model": "Apple MacBook Neo",
+      "memory_gb": [
+        8
+      ],
+      "owners": 264
+    },
+    {
+      "id": "gpu-amd-radeon-890m",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "Radeon 890M",
+      "memory_gb": [
+        16,
+        24,
+        32,
+        48,
+        64,
+        96
+      ],
+      "owners": 258
+    },
+    {
+      "id": "cpu-amd-ryzen-threadripper-zen-1000-whitehaven",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "AMD",
+      "model": "Ryzen Threadripper Zen 1000 (Whitehaven)",
+      "memory_gb": [],
+      "owners": 253
+    },
+    {
+      "id": "gpu-nvidia-rtx-a3000-mobile",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX A3000 Mobile",
+      "memory_gb": [
+        6,
+        12
+      ],
+      "owners": 236
+    },
+    {
+      "id": "gpu-nvidia-l20",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "L20",
+      "memory_gb": [
+        48
+      ],
+      "owners": 220
+    },
+    {
+      "id": "gpu-amd-mi60",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "MI60",
+      "memory_gb": [
+        32
+      ],
+      "owners": 203
+    },
+    {
+      "id": "cpu-amd-ryzen-ai-300-ryzen-ai-5",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "AMD",
+      "model": "Ryzen AI 300 (Ryzen AI 5)",
+      "memory_gb": [],
+      "owners": 203
+    },
+    {
+      "id": "cpu-amd-epyc-1st-generation-zen-naples",
+      "kind": "cpu",
+      "category": "CPU",
+      "vendor": "AMD",
+      "model": "EPYC 1st Generation Zen (Naples)",
+      "memory_gb": [],
+      "owners": 195
+    },
+    {
+      "id": "gpu-nvidia-jetson-orin-nx-16gb",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "Jetson Orin NX 16GB",
+      "memory_gb": [
+        16
+      ],
+      "owners": 191
+    },
+    {
+      "id": "gpu-nvidia-rtx-5880-ada",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 5880 Ada",
+      "memory_gb": [
+        48
+      ],
+      "owners": 183
+    },
+    {
+      "id": "gpu-nvidia-rtx-pro-4500-ws",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX PRO 4500 WS",
+      "memory_gb": [
+        32
+      ],
+      "owners": 181
+    },
+    {
+      "id": "gpu-amd-rx-5700-xt",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "RX 5700 XT",
+      "memory_gb": [
+        8
+      ],
+      "owners": 170
+    },
+    {
+      "id": "gpu-nvidia-a2",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "A2",
+      "memory_gb": [
+        16
+      ],
+      "owners": 167
+    },
+    {
+      "id": "gpu-qualcomm-snapdragon-x-elite-x1e-80-100",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "Qualcomm",
+      "model": "Snapdragon X Elite X1E-80-100",
+      "memory_gb": [],
+      "owners": 150
+    },
+    {
+      "id": "gpu-amd-mi250",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "MI250",
+      "memory_gb": [
+        128
+      ],
+      "owners": 145
+    },
+    {
+      "id": "gpu-amd-ryzen-ai-max-395-plus",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "Ryzen AI Max 395+",
+      "memory_gb": [],
+      "owners": 145
+    },
+    {
+      "id": "gpu-nvidia-rtx-5050-mobile",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 5050 Mobile",
+      "memory_gb": [
+        8
+      ],
+      "owners": 143
+    },
+    {
+      "id": "gpu-amd-mi100",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "MI100",
+      "memory_gb": [
+        32
+      ],
+      "owners": 141
+    },
+    {
+      "id": "gpu-intel-arc-b570",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "Intel",
+      "model": "Arc B570",
+      "memory_gb": [
+        10
+      ],
+      "owners": 139
+    },
+    {
+      "id": "gpu-nvidia-rtx-5050",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 5050",
+      "memory_gb": [
+        8
+      ],
+      "owners": 139
+    },
+    {
+      "id": "gpu-nvidia-rtx-pro-2000",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX PRO 2000",
+      "memory_gb": [
+        16
+      ],
+      "owners": 139
+    },
+    {
+      "id": "gpu-nvidia-rtx-a5000-mobile",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX A5000 Mobile",
+      "memory_gb": [
+        16
+      ],
+      "owners": 136
+    },
+    {
+      "id": "gpu-amd-rx-5700",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "RX 5700",
+      "memory_gb": [
+        8
+      ],
+      "owners": 110
+    },
+    {
+      "id": "gpu-qualcomm-snapdragon-x-elite-x1e-84-100",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "Qualcomm",
+      "model": "Snapdragon X Elite X1E-84-100",
+      "memory_gb": [],
+      "owners": 108
+    },
+    {
+      "id": "gpu-amd-radeon-860m",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "Radeon 860M",
+      "memory_gb": [
+        16,
+        24,
+        32,
+        48,
+        64,
+        96
+      ],
+      "owners": 102
+    },
+    {
+      "id": "gpu-amd-radeon-pro-v620",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "Radeon Pro V620",
+      "memory_gb": [
+        32
+      ],
+      "owners": 98
+    },
+    {
+      "id": "gpu-nvidia-jetson-orin-nano-4gb",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "Jetson Orin Nano 4GB",
+      "memory_gb": [
+        4
+      ],
+      "owners": 98
+    },
+    {
+      "id": "gpu-nvidia-rtx-pro-4000-sff",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX PRO 4000 SFF",
+      "memory_gb": [
+        24
+      ],
+      "owners": 98
+    },
+    {
+      "id": "gpu-qualcomm-snapdragon-x-elite-x1e-78-100",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "Qualcomm",
+      "model": "Snapdragon X Elite X1E-78-100",
+      "memory_gb": [],
+      "owners": 91
+    },
+    {
+      "id": "gpu-amd-mi210",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "MI210",
+      "memory_gb": [
+        64
+      ],
+      "owners": 89
+    },
+    {
+      "id": "gpu-amd-radeon-610m",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "Radeon 610M",
+      "memory_gb": [
+        16,
+        24,
+        32,
+        48,
+        64,
+        96
+      ],
+      "owners": 85
+    },
+    {
+      "id": "gpu-nvidia-jetson-agx-xavier",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "Jetson AGX Xavier",
+      "memory_gb": [
+        32,
+        64
+      ],
+      "owners": 85
+    },
+    {
+      "id": "gpu-nvidia-rtx-a4000-mobile",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX A4000 Mobile",
+      "memory_gb": [
+        8
+      ],
+      "owners": 83
+    },
+    {
+      "id": "gpu-nvidia-jetson-agx-orin-32gb",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "Jetson AGX Orin 32GB",
+      "memory_gb": [
+        32
+      ],
+      "owners": 81
+    },
+    {
+      "id": "gpu-nvidia-t10",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "T10",
+      "memory_gb": [
+        16
+      ],
+      "owners": 80
+    },
+    {
+      "id": "gpu-intel-arc-a380",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "Intel",
+      "model": "Arc A380",
+      "memory_gb": [
+        6
+      ],
+      "owners": 77
+    },
+    {
+      "id": "gpu-amd-pro-w7800",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "PRO W7800",
+      "memory_gb": [
+        32,
+        48
+      ],
+      "owners": 61
+    },
+    {
+      "id": "gpu-nvidia-a30",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "A30",
+      "memory_gb": [
+        24
+      ],
+      "owners": 60
+    },
+    {
+      "id": "gpu-amd-radeon-760m",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "Radeon 760M",
+      "memory_gb": [
+        16,
+        24,
+        32,
+        48,
+        64,
+        96
+      ],
+      "owners": 56
+    },
+    {
+      "id": "gpu-amd-radeon-880m",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "Radeon 880M",
+      "memory_gb": [
+        16,
+        24,
+        32,
+        48,
+        64,
+        96
+      ],
+      "owners": 54
+    },
+    {
+      "id": "gpu-nvidia-jetson-xavier-nx",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "Jetson Xavier NX",
+      "memory_gb": [
+        8,
+        16
+      ],
+      "owners": 52
+    },
+    {
+      "id": "gpu-nvidia-rtx-a5000-max-q",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX A5000 Max-Q",
+      "memory_gb": [
+        16
+      ],
+      "owners": 49
+    },
+    {
+      "id": "gpu-nvidia-jetson-orin-nx-8gb",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "Jetson Orin NX 8GB",
+      "memory_gb": [
+        8
+      ],
+      "owners": 48
+    },
+    {
+      "id": "gpu-amd-pro-w7900",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "PRO W7900",
+      "memory_gb": [
+        48
+      ],
+      "owners": 47
+    },
+    {
+      "id": "gpu-nvidia-rtx-3500-ada-mobile",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX 3500 Ada Mobile",
+      "memory_gb": [
+        12
+      ],
+      "owners": 42
+    },
+    {
+      "id": "gpu-nvidia-jetson-tx2",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "Jetson TX2",
+      "memory_gb": [
+        4,
+        8
+      ],
+      "owners": 41
+    },
+    {
+      "id": "gpu-amd-radeon-740m",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "Radeon 740M",
+      "memory_gb": [
+        16,
+        24,
+        32,
+        48,
+        64,
+        96
+      ],
+      "owners": 37
+    },
+    {
+      "id": "gpu-nvidia-a800",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "A800",
+      "memory_gb": [
+        40,
+        80
+      ],
+      "owners": 36
+    },
+    {
+      "id": "gpu-nvidia-h20",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "H20",
+      "memory_gb": [
+        96
+      ],
+      "owners": 28
+    },
+    {
+      "id": "gpu-nvidia-rtx-a2000-max-q",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX A2000 Max-Q",
+      "memory_gb": [
+        4,
+        8
+      ],
+      "owners": 27
+    },
+    {
+      "id": "gpu-nvidia-rtx-a4000-max-q",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX A4000 Max-Q",
+      "memory_gb": [
+        8
+      ],
+      "owners": 25
+    },
+    {
+      "id": "gpu-nvidia-rtx-a2000-embedded",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "RTX A2000 Embedded",
+      "memory_gb": [
+        4
+      ],
+      "owners": 23
+    },
+    {
+      "id": "gpu-amd-radeon-840m",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "Radeon 840M",
+      "memory_gb": [
+        16,
+        24,
+        32,
+        48,
+        64,
+        96
+      ],
+      "owners": 20
+    },
+    {
+      "id": "gpu-nvidia-h800",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "NVIDIA",
+      "model": "H800",
+      "memory_gb": [
+        80
+      ],
+      "owners": 18
+    },
+    {
+      "id": "gpu-amd-radeon-820m",
+      "kind": "gpu",
+      "category": "GPU",
+      "vendor": "AMD",
+      "model": "Radeon 820M",
+      "memory_gb": [
+        16,
+        24,
+        32,
+        48,
+        64,
+        96
+      ],
+      "owners": 3
+    }
+  ]
+}
