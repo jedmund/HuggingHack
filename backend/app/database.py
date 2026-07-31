@@ -155,6 +155,32 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_sessions_expiry
                     ON sessions(expires_at);
 
+                CREATE TABLE IF NOT EXISTS oidc_identities (
+                    issuer TEXT NOT NULL,
+                    subject TEXT NOT NULL,
+                    user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+                    preferred_username TEXT,
+                    email TEXT,
+                    created_at TEXT NOT NULL,
+                    last_login_at TEXT NOT NULL,
+                    PRIMARY KEY(issuer, subject)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_oidc_identities_user
+                    ON oidc_identities(user_id);
+
+                CREATE TABLE IF NOT EXISTS oidc_login_states (
+                    state_hash TEXT PRIMARY KEY,
+                    nonce TEXT NOT NULL,
+                    code_verifier TEXT NOT NULL,
+                    return_to TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_oidc_login_states_expiry
+                    ON oidc_login_states(expires_at);
+
                 CREATE TABLE IF NOT EXISTS downloads (
                     id TEXT PRIMARY KEY,
                     repo_id TEXT NOT NULL,
@@ -339,6 +365,10 @@ class Database:
                 "DELETE FROM sessions WHERE expires_at <= ?",
                 (datetime.now(timezone.utc).isoformat(),),
             )
+            connection.execute(
+                "DELETE FROM oidc_login_states WHERE expires_at <= ?",
+                (datetime.now(timezone.utc).isoformat(),),
+            )
 
     def _column_names(
         self, connection: sqlite3.Connection | _PostgresConnection, table: str
@@ -433,6 +463,101 @@ class Database:
                 WHERE id = ?
                 """,
                 (password_hash, updated_at, user_id),
+            )
+
+    def update_user_profile(
+        self,
+        user_id: str,
+        display_name: str,
+        role: str,
+        updated_at: str,
+    ) -> dict[str, Any] | None:
+        with self._write_lock, self.connect() as connection:
+            connection.execute(
+                """
+                UPDATE users
+                SET display_name = ?, role = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (display_name, role, updated_at, user_id),
+            )
+        return self.get_user(user_id, include_secret=False)
+
+    def create_oidc_login_state(self, record: dict[str, Any]) -> None:
+        with self._write_lock, self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO oidc_login_states (
+                    state_hash, nonce, code_verifier, return_to, created_at, expires_at
+                ) VALUES (
+                    :state_hash, :nonce, :code_verifier, :return_to, :created_at, :expires_at
+                )
+                """,
+                record,
+            )
+
+    def consume_oidc_login_state(self, state_hash: str) -> dict[str, Any] | None:
+        with self._write_lock, self.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM oidc_login_states WHERE state_hash = ?",
+                (state_hash,),
+            ).fetchone()
+            connection.execute(
+                "DELETE FROM oidc_login_states WHERE state_hash = ?",
+                (state_hash,),
+            )
+        return dict(row) if row else None
+
+    def get_oidc_identity(self, issuer: str, subject: str) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM oidc_identities
+                WHERE issuer = ? AND subject = ?
+                """,
+                (issuer, subject),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def get_oidc_identity_for_user(self, user_id: str) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM oidc_identities WHERE user_id = ?",
+                (user_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def link_oidc_identity(self, record: dict[str, Any]) -> None:
+        with self._write_lock, self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO oidc_identities (
+                    issuer, subject, user_id, preferred_username, email,
+                    created_at, last_login_at
+                ) VALUES (
+                    :issuer, :subject, :user_id, :preferred_username, :email,
+                    :created_at, :last_login_at
+                )
+                """,
+                record,
+            )
+
+    def update_oidc_identity(
+        self,
+        issuer: str,
+        subject: str,
+        preferred_username: str | None,
+        email: str | None,
+        last_login_at: str,
+    ) -> None:
+        with self._write_lock, self.connect() as connection:
+            connection.execute(
+                """
+                UPDATE oidc_identities
+                SET preferred_username = ?, email = ?, last_login_at = ?
+                WHERE issuer = ? AND subject = ?
+                """,
+                (preferred_username, email, last_login_at, issuer, subject),
             )
 
     def create_session(self, record: dict[str, Any]) -> None:

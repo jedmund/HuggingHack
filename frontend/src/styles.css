@@ -823,7 +823,16 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
   place-items: center; border: 0; border-radius: 6px; background: transparent;
   color: var(--text-muted); cursor: pointer;
 }
-.auth-submit { min-height: 46px; justify-content: center; }
+.auth-submit { min-height: 46px; justify-content: center; text-decoration: none; }
+.oidc-auth-card > p { color: var(--text-secondary); }
+.account-managed-note {
+  padding: 13px; display: flex; align-items: center; gap: 10px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--canvas-subtle);
+  color: var(--text-secondary);
+}
+.account-managed-note > svg { flex: 0 0 auto; color: var(--brand-warm); }
+.account-managed-note span { display: grid; gap: 2px; }
+.account-managed-note small { color: var(--text-muted); }
 .auth-unavailable { grid-template-columns: 1fr; }
 .auth-unavailable .auth-card { justify-self: center; text-align: center; }
 .auth-unavailable .auth-card > svg { justify-self: center; color: var(--danger); }

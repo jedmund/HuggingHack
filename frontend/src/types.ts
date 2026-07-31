@@ -26,6 +26,7 @@ export interface Health {
   hf_token_configured: boolean
   hf_endpoint: string
   accounts_enabled: boolean
+  auth_mode: 'local' | 'oidc' | 'disabled'
   upload_chunk_bytes: number
   max_upload_size_bytes: number
   runtime_target_count: number
@@ -43,6 +44,9 @@ export interface User {
 
 export interface AuthStatus {
   accounts_enabled: boolean
+  auth_mode: 'local' | 'oidc' | 'disabled'
+  oidc_provider_name: string | null
+  oidc_login_url: string | null
   setup_required: boolean
   user: User | null
   csrf_token: string | null

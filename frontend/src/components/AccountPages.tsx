@@ -41,18 +41,27 @@ import { ModelDrawer } from './Drawers'
 type ToastHandler = (message: string, tone?: 'success' | 'error') => void
 
 export function AuthScreen({
-  setup,
+  status,
   onAuthenticated,
 }: {
-  setup: boolean
+  status: AuthStatus
   onAuthenticated: (status: AuthStatus) => void
 }) {
+  const setup = status.setup_required
+  const oidc = status.auth_mode === 'oidc'
   const [username, setUsername] = useState('')
   const [displayName, setDisplayName] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState(
+    () => new URLSearchParams(window.location.search).get('auth_error') || '',
+  )
+
+  useEffect(() => {
+    if (!new URLSearchParams(window.location.search).has('auth_error')) return
+    window.history.replaceState({}, '', `${window.location.pathname}${window.location.hash}`)
+  }, [])
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -75,10 +84,12 @@ export function AuthScreen({
       <section className="auth-story">
         <img src="/hugginghack-mark.svg" alt="" />
         <span className="eyebrow">Your model library, with a front door</span>
-        <h1>{setup ? 'Create the owner account' : 'Welcome back'}</h1>
+        <h1>{setup ? 'Create the owner account' : oidc ? 'Your Pocket ID is the key' : 'Welcome back'}</h1>
         <p>
           {setup
             ? 'The first account administers this HuggingHack instance. Your models stay on this machine or NAS.'
+            : oidc
+              ? `Continue through ${status.oidc_provider_name || 'your identity provider'} to open your personal model workspace.`
             : 'Sign in to your saved models, collections, downloads, and uploaded repositories.'}
         </p>
         <div className="auth-benefits">
@@ -87,6 +98,19 @@ export function AuthScreen({
           <span><ShieldCheck size={18} /> Private by default</span>
         </div>
       </section>
+      {oidc ? (
+        <section className="auth-card oidc-auth-card">
+          <div>
+            <span className="eyebrow">Single sign-on</span>
+            <h2>Continue with {status.oidc_provider_name || 'Pocket ID'}</h2>
+          </div>
+          <p>Your account and access level are provisioned from your identity-provider profile and groups.</p>
+          {error && <div className="inline-error">{error}</div>}
+          <a className="download-button auth-submit" href={status.oidc_login_url || '/api/auth/oidc/login'}>
+            <LockKeyhole size={17} /> Sign in with {status.oidc_provider_name || 'Pocket ID'}
+          </a>
+        </section>
+      ) : (
       <form className="auth-card" onSubmit={submit}>
         <div>
           <span className="eyebrow">{setup ? 'One-time setup' : 'HuggingHack account'}</span>
@@ -145,6 +169,7 @@ export function AuthScreen({
           {submitting ? 'Working…' : setup ? 'Create owner account' : 'Sign in'}
         </button>
       </form>
+      )}
     </main>
   )
 }
@@ -623,9 +648,11 @@ export function UploadsPage({
 
 export function AccountAdmin({
   user,
+  authStatus,
   onToast,
 }: {
   user: User
+  authStatus: AuthStatus
   onToast: ToastHandler
 }) {
   const [users, setUsers] = useState<User[]>([])
@@ -684,7 +711,11 @@ export function AccountAdmin({
         <Users size={20} />
         <div>
           <h2>Accounts</h2>
-          <p>Signed in as {user.display_name} ({user.role}).</p>
+          <p>
+            Signed in as {user.display_name} ({user.role}).{' '}
+            {authStatus.auth_mode === 'oidc' && `Accounts and roles sync from ${authStatus.oidc_provider_name || 'Pocket ID'}.`}
+            {authStatus.auth_mode === 'disabled' && 'Authentication is disabled for this trusted installation.'}
+          </p>
         </div>
       </div>
       <div className="member-list">
@@ -696,7 +727,7 @@ export function AccountAdmin({
           </div>
         ))}
       </div>
-      <form className="password-change-form" onSubmit={changePassword}>
+      {authStatus.auth_mode === 'local' && <form className="password-change-form" onSubmit={changePassword}>
         <div className="settings-section-title">
           <LockKeyhole size={17} />
           <div><h3>Change my password</h3><p>Other signed-in sessions will be revoked.</p></div>
@@ -722,8 +753,14 @@ export function AccountAdmin({
           {changingPassword ? <LoaderCircle size={15} className="spin" /> : <LockKeyhole size={15} />}
           Update password
         </button>
-      </form>
-      {user.role === 'admin' && (
+      </form>}
+      {authStatus.auth_mode === 'oidc' && (
+        <div className="account-managed-note">
+          <ShieldCheck size={17} />
+          <span><strong>Managed by {authStatus.oidc_provider_name || 'Pocket ID'}</strong><small>Sign in there to update your profile. Group changes are applied at the next login.</small></span>
+        </div>
+      )}
+      {authStatus.auth_mode === 'local' && user.role === 'admin' && (
         <form className="member-form" onSubmit={createMember}>
           <div className="settings-section-title">
             <UserPlus size={17} />
