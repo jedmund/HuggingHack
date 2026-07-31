@@ -22,6 +22,7 @@ from .database import INTEGRITY_ERRORS, Database
 from .download_schedule import validate_schedule
 from .downloads import DownloadManager
 from .hub_service import HubService
+from .hardware import evaluate_weight_groups
 from .indexer import LocalModelIndexer
 from .oidc import OIDCService
 from .runtimes import RuntimeManager
@@ -133,6 +134,37 @@ class CreateUserRequest(SetupRequest):
 class PasswordChangeRequest(BaseModel):
     current_password: str = Field(min_length=1, max_length=256)
     new_password: str = Field(min_length=12, max_length=256)
+
+
+class HardwareComponentRequest(BaseModel):
+    kind: Literal["cpu", "gpu", "apple_silicon"]
+    vendor: str = Field(default="", max_length=80)
+    model: str = Field(min_length=1, max_length=120)
+    memory_bytes: int = Field(ge=0, le=2**60)
+    quantity: int = Field(default=1, ge=1, le=16)
+
+    @field_validator("model")
+    @classmethod
+    def model_is_not_whitespace(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("Component model cannot be blank.")
+        return cleaned
+
+
+class HardwareRigRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    notes: str = Field(default="", max_length=500)
+    is_primary: bool = False
+    components: list[HardwareComponentRequest] = Field(default_factory=list, max_length=16)
+
+    @field_validator("name")
+    @classmethod
+    def name_is_not_whitespace(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("Rig name cannot be blank.")
+        return cleaned
 
 
 class DownloadSelectionPath(BaseModel):
@@ -465,6 +497,83 @@ def change_password(
     return {"status": "password_changed"}
 
 
+def hardware_component_records(
+    rig_id: str, payload: HardwareRigRequest, timestamp: str
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": uuid.uuid4().hex,
+            "rig_id": rig_id,
+            "kind": component.kind,
+            "vendor": component.vendor.strip(),
+            "model": component.model.strip(),
+            "memory_bytes": component.memory_bytes,
+            "quantity": component.quantity,
+            "created_at": timestamp,
+            "updated_at": timestamp,
+        }
+        for component in payload.components
+    ]
+
+
+@app.get("/api/hardware/rigs")
+def list_hardware_rigs(user: CurrentUser) -> dict:
+    return {"items": database.list_hardware_rigs(user["id"])}
+
+
+@app.post("/api/hardware/rigs", status_code=201)
+def create_hardware_rig(payload: HardwareRigRequest, user: WriteUser) -> dict:
+    timestamp = utc_iso()
+    rig_id = uuid.uuid4().hex
+    try:
+        rig = database.create_hardware_rig(
+            {
+                "id": rig_id,
+                "user_id": user["id"],
+                "name": payload.name,
+                "notes": payload.notes.strip(),
+                "is_primary": payload.is_primary,
+                "created_at": timestamp,
+                "updated_at": timestamp,
+            },
+            hardware_component_records(rig_id, payload, timestamp),
+        )
+    except INTEGRITY_ERRORS as error:
+        raise HTTPException(status_code=409, detail="A rig with that name already exists.") from error
+    return rig
+
+
+@app.put("/api/hardware/rigs/{rig_id}")
+def update_hardware_rig(
+    rig_id: str, payload: HardwareRigRequest, user: WriteUser
+) -> dict:
+    timestamp = utc_iso()
+    try:
+        rig = database.update_hardware_rig(
+            rig_id,
+            user["id"],
+            {
+                "name": payload.name,
+                "notes": payload.notes.strip(),
+                "is_primary": payload.is_primary,
+                "updated_at": timestamp,
+            },
+            hardware_component_records(rig_id, payload, timestamp),
+        )
+    except INTEGRITY_ERRORS as error:
+        raise HTTPException(status_code=409, detail="A rig with that name already exists.") from error
+    if not rig:
+        raise HTTPException(status_code=404, detail="Hardware rig was not found.")
+    return rig
+
+
+@app.delete("/api/hardware/rigs/{rig_id}")
+def delete_hardware_rig(rig_id: str, user: WriteUser) -> dict:
+    if not database.delete_hardware_rig(rig_id, user["id"]):
+        raise HTTPException(status_code=404, detail="Hardware rig was not found.")
+    return {"status": "deleted"}
+
+
 @app.get("/api/hub/models")
 async def search_hub_models(
     user: CurrentUser,
@@ -543,6 +652,11 @@ async def hub_model(repo_id: str, user: CurrentUser, revision: str = "main") -> 
         )
         details["local"] = database.get_local_model(validated) is not None
         details["saved"] = validated in database.saved_repo_ids(user["id"])
+        rigs = database.list_hardware_rigs(user["id"])
+        details["weight_groups"] = evaluate_weight_groups(
+            details.get("weight_groups") or [], rigs
+        )
+        details["hardware_rig_count"] = len(rigs)
         return details
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
