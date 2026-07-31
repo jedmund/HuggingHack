@@ -276,6 +276,8 @@ class AuthService:
         display_name = str(
             claims.get("name") or preferred_username or email or "Pocket ID user"
         ).strip()[:80]
+        if not display_name:
+            display_name = "Pocket ID user"
         admin_groups = {group.casefold() for group in self.settings.oidc_admin_groups}
         mapped_role = "admin" if groups.intersection(admin_groups) else "member"
 
@@ -300,7 +302,10 @@ class AuthService:
                         }
                     )
                     break
-                if self.database.get_oidc_identity_for_user(existing["id"]) is None:
+                if (
+                    preferred_username
+                    and self.database.get_oidc_identity_for_user(existing["id"]) is None
+                ):
                     user = existing
                     break
                 suffix += 1

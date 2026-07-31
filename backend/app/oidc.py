@@ -65,6 +65,7 @@ class OIDCService:
         for field in ("authorization_endpoint", "token_endpoint", "jwks_uri"):
             if not metadata.get(field):
                 raise ValueError(f"The OIDC discovery response is missing {field}.")
+            self._validate_endpoint(field, str(metadata[field]))
         with self._metadata_lock:
             self._metadata_cache = metadata
             self._metadata_expires_at = time.monotonic() + 600
@@ -153,6 +154,10 @@ class OIDCService:
             return None
         if not endpoint:
             return None
+        try:
+            self._validate_endpoint("end_session_endpoint", str(endpoint))
+        except ValueError:
+            return None
         query = urlencode(
             {
                 "client_id": self.settings.oidc_client_id,
@@ -217,3 +222,11 @@ class OIDCService:
         if "client_secret_post" in supported:
             return "client_secret_post"
         raise ValueError("Pocket ID does not advertise a supported client-secret method.")
+
+    @staticmethod
+    def _validate_endpoint(name: str, value: str) -> None:
+        if value.startswith("https://") or value.startswith(
+            ("http://localhost", "http://127.0.0.1", "http://[::1]")
+        ):
+            return
+        raise ValueError(f"The OIDC {name} must use HTTPS except on localhost.")
