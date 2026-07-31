@@ -46,8 +46,9 @@
 - Familiar Hub-style model catalog with visual, metadata-driven model cards plus task, format, local-app, parameter, and sort filters
 - Live Hugging Face metadata, repository file lists, richly rendered model cards, gated status, likes, and download counts
 - On-demand GGUF metadata and tensor inspection with shard position, names, shapes, data types, and parameter totals
-- Full repository, SafeTensors, single-GGUF, metadata-only, and custom-pattern download modes
-- Background downloads with revision selection, byte progress, speed, cancellation, and history
+- Full repository, SafeTensors, GGUF, metadata-only, file/folder, weight-set, and custom-pattern download modes
+- Background downloads with revision pinning, byte progress, speed, pause/resume, retained-data cleanup, and history
+- Administrator-defined weekly download windows in the browser's IANA timezone
 - Restart recovery: interrupted jobs resume through Hugging Face's local-dir metadata
 - Automatic local-library indexing with model size, file count, config metadata, and unsafe serialization warnings
 - Built-in local accounts with a first-run owner, HTTP-only sessions, and administrator-created member accounts
@@ -379,13 +380,19 @@ The token is read only by the backend container. It is never returned by the API
 
 ## File filtering
 
-The model drawer offers five download modes:
+The model drawer offers six download modes plus detected weight-set shortcuts:
 
 - **Full repository** downloads every file in the selected revision.
 - **SafeTensors** selects safe weights plus configuration and tokenizer files.
 - **One GGUF** lets you choose a specific quantization from the repository file list.
+- **Files & folders** selects any combination of repository files and complete folders. Support
+  metadata is included by default and can be switched off.
 - **Metadata only** fetches configuration, tokenizer, and documentation files without weights.
 - **Custom** accepts comma-separated include and exclude patterns.
+
+When a repository publishes a sharded GGUF quantization or an MLX weight folder, the
+**Weight sets** list selects the complete set in one click. For example, choosing
+`UD-Q8_K_XL` includes all of that quantization's shards without selecting unrelated weights.
 
 Custom pattern examples:
 
@@ -405,9 +412,18 @@ HuggingHack reads only bounded byte ranges from the selected file, caches the re
 browser session, and leaves every other shard untouched until you select it. Private and gated
 repositories use the backend's `HF_TOKEN`; the token is never exposed to the browser.
 
-## Cancel and resume
+## Pause, resume, and download windows
 
-Active downloads have a **Cancel download** action. Cancellation stops the isolated download worker, keeps already transferred files and Hugging Face local-directory metadata, and marks the job as cancelled in history. Starting the same repository again can reuse those partial files instead of discarding the completed work.
+Downloads first write to a hidden staging area and only replace the managed model when the
+selected revision is complete. **Pause** stops an isolated worker while keeping the transferred
+files and Hugging Face local-directory metadata. **Resume** continues that job; **Stop** retains
+the same partial data in case it is useful later. A stopped, paused, or failed job exposes
+**Delete data**, which removes only its staging files and keeps the history record.
+
+Administrators can enable one weekly download window in **Settings**, choose its weekdays and
+start/end times, and capture the current browser's IANA timezone. New jobs wait while the window
+is closed. Active transfers pause at closing and resume at the next opening; overnight ranges
+are supported.
 
 ## Manually added models
 
