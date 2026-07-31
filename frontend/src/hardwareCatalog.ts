@@ -37,7 +37,6 @@ export function filterHardwareCatalog(
   items: HardwareCatalogItem[],
   query: string,
   vendor = '',
-  limit = 8,
 ): HardwareCatalogItem[] {
   const terms = normalized(query).split(/\s+/).filter(Boolean)
   const vendorKey = normalized(vendor)
@@ -47,7 +46,6 @@ export function filterHardwareCatalog(
       const haystack = normalized(`${item.vendor} ${item.model} ${item.category}`)
       return terms.every((term) => haystack.includes(term))
     })
-    .slice(0, limit)
 }
 
 export function catalogMemoryLabel(memory: number[]): string {

@@ -20,6 +20,16 @@ test('filters catalog models by vendor and multi-word search', () => {
   assert.deepEqual(catalogVendors(items), ['NVIDIA', 'AMD', 'Apple'])
 })
 
+test('returns the complete filtered catalog', () => {
+  const catalog = Array.from({ length: 12 }, (_, index) => ({
+    ...items[0],
+    id: `rtx-${index}`,
+    model: `RTX ${index}`,
+  }))
+
+  assert.equal(filterHardwareCatalog(catalog, '').length, 12)
+})
+
 test('matches existing components without relying on catalog IDs', () => {
   assert.equal(matchingCatalogItem(items, {
     kind: 'gpu',
