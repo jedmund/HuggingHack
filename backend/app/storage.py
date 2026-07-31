@@ -19,6 +19,13 @@ MANIFEST_NAME = ".hugginghack.json"
 PART_SUFFIXES = (".hugginghack-part", ".hugginghack-s3-part")
 
 
+def inject_delete_objects_md5(request: Any, **_: Any) -> None:
+    """Supply the checksum required by strict S3-compatible DeleteObjects APIs."""
+    if request.body and "Content-MD5" not in request.headers:
+        digest = hashlib.md5(request.body).digest()
+        request.headers["Content-MD5"] = base64.b64encode(digest).decode("ascii")
+
+
 def _iso(value: Any) -> str:
     if isinstance(value, datetime):
         return value.astimezone(timezone.utc).isoformat()
@@ -148,12 +155,9 @@ class S3ModelStorage(FilesystemModelStorage):
                 client_options["aws_session_token"] = settings.s3_session_token
             client = boto3.client(**client_options)
 
-            def _inject_md5(request: Any, **_: Any) -> None:
-                if request.body and "Content-MD5" not in request.headers:
-                    digest = hashlib.md5(request.body).digest()
-                    request.headers["Content-MD5"] = base64.b64encode(digest).decode("ascii")
-
-            client.meta.events.register("request-created.s3.DeleteObjects", _inject_md5)
+            client.meta.events.register(
+                "request-created.s3.DeleteObjects", inject_delete_objects_md5
+            )
             chunk_bytes = settings.s3_multipart_chunk_mb * 1024**2
             transfer_config = TransferConfig(
                 multipart_threshold=chunk_bytes,
