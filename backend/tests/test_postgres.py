@@ -21,6 +21,7 @@ def test_postgresql_database_crud_contract():
     collection_id = f"collection-{suffix}"
     download_id = f"download-{suffix}"
     runtime_job_id = f"runtime-{suffix}"
+    rig_id = f"rig-{suffix}"
     repo_id = f"owner-{suffix}/model"
     timestamp = "2026-07-24T12:00:00+00:00"
 
@@ -61,6 +62,33 @@ def test_postgresql_database_crud_contract():
             }
         )
         assert database.get_session(f"token-{suffix}")["user"]["id"] == user_id
+
+        rig = database.create_hardware_rig(
+            {
+                "id": rig_id,
+                "user_id": user_id,
+                "name": f"PostgreSQL rig {suffix}",
+                "notes": "Integration test",
+                "is_primary": True,
+                "created_at": timestamp,
+                "updated_at": timestamp,
+            },
+            [
+                {
+                    "id": f"component-{suffix}",
+                    "rig_id": rig_id,
+                    "kind": "gpu",
+                    "vendor": "Test",
+                    "model": "GPU",
+                    "memory_bytes": 24 * 1024**3,
+                    "quantity": 1,
+                    "created_at": timestamp,
+                    "updated_at": timestamp,
+                }
+            ],
+        )
+        assert rig["is_primary"] is True
+        assert database.list_hardware_rigs(user_id)[0]["components"][0]["model"] == "GPU"
 
         database.create_download(
             {
