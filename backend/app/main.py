@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field, field_validator
 from .auth import AuthService, utc_iso
 from .config import settings, validate_repo_id
 from .database import INTEGRITY_ERRORS, Database
+from .download_schedule import validate_schedule
 from .downloads import DownloadManager
 from .hub_service import HubService
 from .indexer import LocalModelIndexer
@@ -128,12 +129,23 @@ class PasswordChangeRequest(BaseModel):
     new_password: str = Field(min_length=12, max_length=256)
 
 
+class DownloadSelectionPath(BaseModel):
+    path: str = Field(min_length=1, max_length=500)
+    kind: Literal["file", "folder"] = "file"
+
+
+class DownloadSelectionRequest(BaseModel):
+    paths: list[DownloadSelectionPath] = Field(min_length=1, max_length=200)
+    include_metadata: bool = True
+
+
 class DownloadRequest(BaseModel):
     repo_id: str
     revision: str = Field(default="main", max_length=200)
     allow_patterns: list[str] = Field(default_factory=list, max_length=50)
     ignore_patterns: list[str] = Field(default_factory=list, max_length=50)
-    mode: Literal["full", "safetensors", "gguf", "metadata", "custom"] = "full"
+    mode: Literal["full", "safetensors", "gguf", "metadata", "custom", "selection"] = "full"
+    selection: DownloadSelectionRequest | None = None
 
     @field_validator("repo_id")
     @classmethod
@@ -151,6 +163,14 @@ class DownloadRequest(BaseModel):
             if item:
                 cleaned.append(item)
         return cleaned
+
+
+class DownloadScheduleRequest(BaseModel):
+    enabled: bool = False
+    timezone: str = Field(min_length=1, max_length=100)
+    weekdays: list[int] = Field(default_factory=list, max_length=7)
+    start_time: str = Field(min_length=5, max_length=5)
+    end_time: str = Field(min_length=5, max_length=5)
 
 
 class CollectionRequest(BaseModel):
@@ -278,6 +298,7 @@ def health() -> dict:
         "max_upload_size_bytes": settings.max_upload_size_gb * 1024**3,
         "runtime_target_count": len(runtimes.targets),
         "runtime_api_token_configured": bool(settings.runtime_api_token),
+        "download_window": downloads.schedule(),
     }
 
 
@@ -478,9 +499,33 @@ def list_downloads(user: CurrentUser) -> dict:
     return {
         "items": items,
         "active": sum(
-            item["status"] in {"queued", "preparing", "downloading"} for item in items
+            item["status"]
+            in {"queued", "scheduled", "preparing", "downloading", "finalizing", "paused"}
+            for item in items
         ),
     }
+
+
+@app.get("/api/download-settings")
+def download_settings(_: CurrentUser) -> dict:
+    return downloads.schedule()
+
+
+@app.patch("/api/download-settings")
+def update_download_settings(payload: DownloadScheduleRequest, user: AdminUser) -> dict:
+    try:
+        validated = validate_schedule(payload.model_dump())
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    updated = database.update_download_schedule(
+        {
+            **validated,
+            "updated_by": user["id"],
+            "updated_at": utc_iso(),
+        }
+    )
+    downloads.notify_schedule_changed()
+    return {**updated, "window_open": downloads.schedule()["window_open"]}
 
 
 @app.get("/api/downloads/{download_id}")
@@ -506,6 +551,7 @@ def start_download(payload: DownloadRequest, user: WriteUser) -> dict:
             payload.ignore_patterns,
             payload.mode,
             user_id=user["id"],
+            selection=payload.selection.model_dump() if payload.selection else None,
         )
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
@@ -521,6 +567,39 @@ def cancel_download(download_id: str, user: WriteUser) -> dict:
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
     return download
+
+
+@app.post("/api/downloads/{download_id}/pause")
+def pause_download(download_id: str, user: WriteUser) -> dict:
+    existing = database.get_download(download_id)
+    if not existing or not can_access_download(existing, user):
+        raise HTTPException(status_code=404, detail="Download not found")
+    try:
+        return downloads.pause(download_id) or existing
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@app.post("/api/downloads/{download_id}/resume")
+def resume_download(download_id: str, user: WriteUser) -> dict:
+    existing = database.get_download(download_id)
+    if not existing or not can_access_download(existing, user):
+        raise HTTPException(status_code=404, detail="Download not found")
+    try:
+        return downloads.resume(download_id) or existing
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@app.delete("/api/downloads/{download_id}/data")
+def cleanup_download(download_id: str, user: WriteUser) -> dict:
+    existing = database.get_download(download_id)
+    if not existing or not can_access_download(existing, user):
+        raise HTTPException(status_code=404, detail="Download not found")
+    try:
+        return downloads.cleanup(download_id) or existing
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
 
 
 @app.get("/api/local-models")
