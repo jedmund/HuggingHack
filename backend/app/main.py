@@ -23,6 +23,7 @@ from .download_schedule import validate_schedule
 from .downloads import DownloadManager
 from .hub_service import HubService
 from .hardware import evaluate_weight_groups
+from .hardware_catalog import hardware_catalog
 from .indexer import LocalModelIndexer
 from .oidc import OIDCService
 from .runtimes import RuntimeManager
@@ -514,6 +515,11 @@ def hardware_component_records(
         }
         for component in payload.components
     ]
+
+
+@app.get("/api/hardware/catalog")
+def list_hardware_catalog(user: CurrentUser) -> dict:
+    return hardware_catalog()
 
 
 @app.get("/api/hardware/rigs")
