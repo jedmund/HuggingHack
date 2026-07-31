@@ -506,6 +506,7 @@ const downloadModeLabels = {
 
 function DownloadStatus({
   job,
+  onOpenRepository,
   onCancel,
   onPause,
   onResume,
@@ -513,6 +514,7 @@ function DownloadStatus({
   acting,
 }: {
   job: DownloadJob
+  onOpenRepository: (repoId: string) => void
   onCancel?: (job: DownloadJob) => void
   onPause?: (job: DownloadJob) => void
   onResume?: (job: DownloadJob) => void
@@ -547,7 +549,15 @@ function DownloadStatus({
       <div className="download-main">
         <div className="download-title">
           <div>
-            <h3>{job.repo_id}</h3>
+            <h3>
+              <button
+                type="button"
+                className="download-repository-link"
+                onClick={() => onOpenRepository(job.repo_id)}
+              >
+                {job.repo_id}
+              </button>
+            </h3>
             <span>{modeLabel} · revision {job.revision}</span>
           </div>
           <div className="download-title-actions">
@@ -643,6 +653,7 @@ function DownloadsPage({
   refreshDownloads: () => void
 }) {
   const [acting, setActing] = useState<string | null>(null)
+  const [selectedRepository, setSelectedRepository] = useState<string | null>(null)
   const active = jobs.filter((job) => activeDownloadStatuses.includes(job.status))
   const finished = jobs.filter((job) => !active.includes(job))
   const totalSpeed = active.reduce((total, job) => total + job.speed_bps, 0)
@@ -706,7 +717,8 @@ function DownloadsPage({
   }
 
   return (
-    <div className="standard-page downloads-page">
+    <>
+      <div className="standard-page downloads-page">
       <div className="page-heading">
         <div>
           <span className="eyebrow">Persistent background transfers</span>
@@ -729,6 +741,7 @@ function DownloadsPage({
             <DownloadStatus
               key={job.id}
               job={job}
+              onOpenRepository={setSelectedRepository}
               onCancel={cancel}
               onPause={pause}
               onResume={resume}
@@ -747,12 +760,27 @@ function DownloadsPage({
         <h2>History</h2>
         <div className="download-list">
           {finished.map((job) => (
-            <DownloadStatus key={job.id} job={job} onCleanup={cleanup} acting={acting === job.id} />
+            <DownloadStatus
+              key={job.id}
+              job={job}
+              onOpenRepository={setSelectedRepository}
+              onCleanup={cleanup}
+              acting={acting === job.id}
+            />
           ))}
           {finished.length === 0 && <div className="empty-compact">Completed, cancelled, and failed jobs appear here.</div>}
         </div>
       </section>
-    </div>
+      </div>
+      <ModelDrawer
+        repoId={selectedRepository}
+        onClose={() => setSelectedRepository(null)}
+        onQueued={(repoId) => {
+          onToast(`${repoId} was added to the download queue.`)
+          refreshDownloads()
+        }}
+      />
+    </>
   )
 }
 

@@ -628,6 +628,12 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
 .download-state-icon.failed { background: var(--danger-bg); color: var(--danger); }
 .download-title { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
 .download-title h3 { font-size: 14px; }
+.download-repository-link {
+  padding: 0; border: 0; background: transparent; color: var(--text); cursor: pointer;
+  text-align: left; text-decoration: underline; text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px; transition: color 140ms ease, text-decoration-color 140ms ease;
+}
+.download-repository-link:hover { color: var(--brand-warm); text-decoration-color: currentColor; }
 .download-title span { color: var(--text-muted); font-family: 'IBM Plex Mono', monospace; font-size: 10px; }
 .job-status {
   color: var(--warning); font-size: 10px; letter-spacing: 0.07em; text-transform: uppercase;
