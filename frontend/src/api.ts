@@ -3,6 +3,7 @@ import type {
   Collection,
   DownloadJob,
   DownloadMode,
+  DownloadSchedule,
   Health,
   HubModel,
   HubModelDetails,
@@ -12,6 +13,7 @@ import type {
   RuntimeJob,
   RuntimeTarget,
   SavedModel,
+  SelectionPath,
   User,
 } from './types'
 
@@ -76,8 +78,10 @@ export const api = {
   health: () => request<Health>('/api/health'),
   searchModels: (params: URLSearchParams) =>
     request<{ items: HubModel[]; count: number }>(`/api/hub/models?${params.toString()}`),
-  modelDetails: (repoId: string) =>
-    request<HubModelDetails>(`/api/hub/models/${repoPath(repoId)}`),
+  modelDetails: (repoId: string, revision = 'main') =>
+    request<HubModelDetails>(
+      `/api/hub/models/${repoPath(repoId)}?revision=${encodeURIComponent(revision)}`,
+    ),
   downloads: () => request<{ items: DownloadJob[]; active: number }>('/api/downloads'),
   startDownload: (payload: {
     repo_id: string
@@ -85,6 +89,7 @@ export const api = {
     allow_patterns?: string[]
     ignore_patterns?: string[]
     mode?: DownloadMode
+    selection?: { paths: SelectionPath[]; include_metadata: boolean }
   }) =>
     request<DownloadJob>('/api/downloads', {
       method: 'POST',
@@ -93,6 +98,24 @@ export const api = {
   cancelDownload: (downloadId: string) =>
     request<DownloadJob>(`/api/downloads/${encodeURIComponent(downloadId)}/cancel`, {
       method: 'POST',
+    }),
+  pauseDownload: (downloadId: string) =>
+    request<DownloadJob>(`/api/downloads/${encodeURIComponent(downloadId)}/pause`, {
+      method: 'POST',
+    }),
+  resumeDownload: (downloadId: string) =>
+    request<DownloadJob>(`/api/downloads/${encodeURIComponent(downloadId)}/resume`, {
+      method: 'POST',
+    }),
+  cleanupDownload: (downloadId: string) =>
+    request<DownloadJob>(`/api/downloads/${encodeURIComponent(downloadId)}/data`, {
+      method: 'DELETE',
+    }),
+  downloadSettings: () => request<DownloadSchedule>('/api/download-settings'),
+  updateDownloadSettings: (payload: Omit<DownloadSchedule, 'window_open' | 'updated_by' | 'updated_at'>) =>
+    request<DownloadSchedule>('/api/download-settings', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
     }),
   localModels: (query = '') =>
     request<{ items: LocalModel[]; count: number; total_bytes: number }>(

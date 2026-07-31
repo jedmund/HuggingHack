@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import {
   AlertCircle,
   ArrowDownToLine,
   Ban,
   Box,
+  CalendarClock,
   Check,
   ChevronDown,
   CircleX,
@@ -16,11 +17,14 @@ import {
   ListFilter,
   LoaderCircle,
   PackageCheck,
+  Pause,
+  Play,
   RefreshCw,
   Search,
   Server,
   ShieldAlert,
   SlidersHorizontal,
+  Trash2,
   Wifi,
 } from 'lucide-react'
 import {
@@ -38,6 +42,7 @@ import Shell from './components/Shell'
 import type {
   AuthStatus,
   DownloadJob,
+  DownloadSchedule,
   Health,
   HubModel,
   LocalModel,
@@ -485,7 +490,7 @@ function LocalPage({ onToast, user }: { onToast: ToastHandler; user: User }) {
   )
 }
 
-const activeDownloadStatuses = ['queued', 'preparing', 'downloading']
+const activeDownloadStatuses = ['queued', 'scheduled', 'preparing', 'downloading', 'finalizing', 'paused']
 
 const downloadModeLabels = {
   full: 'Full repository',
@@ -493,16 +498,23 @@ const downloadModeLabels = {
   gguf: 'GGUF selection',
   metadata: 'Metadata only',
   custom: 'Custom selection',
+  selection: 'Files & folders',
 }
 
 function DownloadStatus({
   job,
   onCancel,
-  cancelling,
+  onPause,
+  onResume,
+  onCleanup,
+  acting,
 }: {
   job: DownloadJob
   onCancel?: (job: DownloadJob) => void
-  cancelling?: boolean
+  onPause?: (job: DownloadJob) => void
+  onResume?: (job: DownloadJob) => void
+  onCleanup?: (job: DownloadJob) => void
+  acting?: boolean
 }) {
   const isActive = activeDownloadStatuses.includes(job.status)
   const remaining = Math.max(0, job.total_bytes - job.downloaded_bytes)
@@ -537,20 +549,36 @@ function DownloadStatus({
           </div>
           <div className="download-title-actions">
             <strong className={`job-status ${job.status}`}>{job.status}</strong>
-            {isActive && onCancel && (
+            {job.status === 'paused' && onResume && (
+              <button type="button" className="cancel-download-button" onClick={() => onResume(job)} disabled={acting}>
+                {acting ? <LoaderCircle size={14} className="spin" /> : <Play size={14} />}
+                Resume
+              </button>
+            )}
+            {['queued', 'scheduled', 'preparing', 'downloading'].includes(job.status) && onPause && (
+              <button type="button" className="cancel-download-button" onClick={() => onPause(job)} disabled={acting}>
+                {acting ? <LoaderCircle size={14} className="spin" /> : <Pause size={14} />}
+                Pause
+              </button>
+            )}
+            {isActive && job.status !== 'finalizing' && onCancel && (
               <button
                 type="button"
                 className="cancel-download-button"
                 onClick={() => onCancel(job)}
-                disabled={cancelling}
+                disabled={acting}
               >
-                {cancelling ? <LoaderCircle size={14} className="spin" /> : <Ban size={14} />}
-                {cancelling ? 'Cancelling…' : 'Cancel'}
+                <Ban size={14} /> Stop
+              </button>
+            )}
+            {['paused', 'cancelled', 'failed'].includes(job.status) && !job.cleaned_at && onCleanup && (
+              <button type="button" className="cancel-download-button danger" onClick={() => onCleanup(job)} disabled={acting}>
+                <Trash2 size={14} /> Delete data
               </button>
             )}
           </div>
         </div>
-        {isActive && (
+        {isActive && job.status !== 'paused' && (
           <>
             <div className="job-progress" aria-label={`${job.progress.toFixed(0)} percent downloaded`}>
               <span style={{ width: `${Math.max(job.progress, job.status === 'preparing' ? 2 : 0)}%` }} />
@@ -560,7 +588,13 @@ function DownloadStatus({
                 {formatBytes(job.downloaded_bytes)}
                 {job.total_bytes > 0 && ` of ${formatBytes(job.total_bytes)}`}
               </span>
-              <span>{job.speed_bps > 0 ? `${formatBytes(job.speed_bps)}/s` : 'Preparing repository…'}</span>
+              <span>
+                {job.status === 'scheduled'
+                  ? 'Waiting for the download window'
+                  : job.status === 'finalizing'
+                    ? 'Finalizing repository…'
+                    : job.speed_bps > 0 ? `${formatBytes(job.speed_bps)}/s` : 'Preparing repository…'}
+              </span>
               {etaLabel && <span>{etaLabel}</span>}
               {typeof job.metadata.file_count === 'number' && <span>{job.metadata.file_count} repository files</span>}
             </div>
@@ -575,8 +609,14 @@ function DownloadStatus({
         )}
         {job.status === 'cancelled' && (
           <div className="download-stats cancelled-copy">
+            <span>{job.cleaned_at ? 'Retained data deleted' : `${formatBytes(job.downloaded_bytes)} retained`}</span>
+            <span>{job.cleaned_at ? `Cleaned ${relativeTime(job.cleaned_at)}` : 'Delete retained data when it is no longer needed.'}</span>
+          </div>
+        )}
+        {job.status === 'paused' && (
+          <div className="download-stats cancelled-copy">
             <span>{formatBytes(job.downloaded_bytes)} retained</span>
-            <span>Partial files stay in place so a future download can resume.</span>
+            <span>Resume continues from the local Hugging Face metadata.</span>
           </div>
         )}
         {job.status === 'failed' && (
@@ -599,7 +639,7 @@ function DownloadsPage({
   onToast: ToastHandler
   refreshDownloads: () => void
 }) {
-  const [cancelling, setCancelling] = useState<string | null>(null)
+  const [acting, setActing] = useState<string | null>(null)
   const active = jobs.filter((job) => activeDownloadStatuses.includes(job.status))
   const finished = jobs.filter((job) => !active.includes(job))
   const totalSpeed = active.reduce((total, job) => total + job.speed_bps, 0)
@@ -610,15 +650,55 @@ function DownloadsPage({
   const completedCount = jobs.filter((job) => job.status === 'complete').length
 
   async function cancel(job: DownloadJob) {
-    setCancelling(job.id)
+    setActing(job.id)
     try {
       await api.cancelDownload(job.id)
-      onToast(`${job.repo_id} was cancelled. Partial files were kept for resume.`)
+      onToast(`${job.repo_id} was stopped. Partial data is retained until you delete it.`)
       refreshDownloads()
     } catch (reason) {
       onToast(reason instanceof Error ? reason.message : 'Unable to cancel download', 'error')
     } finally {
-      setCancelling(null)
+      setActing(null)
+    }
+  }
+
+  async function pause(job: DownloadJob) {
+    setActing(job.id)
+    try {
+      await api.pauseDownload(job.id)
+      onToast(`${job.repo_id} was paused.`)
+      refreshDownloads()
+    } catch (reason) {
+      onToast(reason instanceof Error ? reason.message : 'Unable to pause download', 'error')
+    } finally {
+      setActing(null)
+    }
+  }
+
+  async function resume(job: DownloadJob) {
+    setActing(job.id)
+    try {
+      await api.resumeDownload(job.id)
+      onToast(`${job.repo_id} will resume when its download window allows.`)
+      refreshDownloads()
+    } catch (reason) {
+      onToast(reason instanceof Error ? reason.message : 'Unable to resume download', 'error')
+    } finally {
+      setActing(null)
+    }
+  }
+
+  async function cleanup(job: DownloadJob) {
+    if (!window.confirm(`Delete ${formatBytes(job.downloaded_bytes)} of retained data for ${job.repo_id}?`)) return
+    setActing(job.id)
+    try {
+      await api.cleanupDownload(job.id)
+      onToast(`Retained data for ${job.repo_id} was deleted; history was kept.`)
+      refreshDownloads()
+    } catch (reason) {
+      onToast(reason instanceof Error ? reason.message : 'Unable to delete retained data', 'error')
+    } finally {
+      setActing(null)
     }
   }
 
@@ -647,7 +727,10 @@ function DownloadsPage({
               key={job.id}
               job={job}
               onCancel={cancel}
-              cancelling={cancelling === job.id}
+              onPause={pause}
+              onResume={resume}
+              onCleanup={cleanup}
+              acting={acting === job.id}
             />
           ))}
           {active.length === 0 && (
@@ -661,7 +744,7 @@ function DownloadsPage({
         <h2>History</h2>
         <div className="download-list">
           {finished.map((job) => (
-            <DownloadStatus key={job.id} job={job} />
+            <DownloadStatus key={job.id} job={job} onCleanup={cleanup} acting={acting === job.id} />
           ))}
           {finished.length === 0 && <div className="empty-compact">Completed, cancelled, and failed jobs appear here.</div>}
         </div>
@@ -810,9 +893,33 @@ function SettingsPage({
   onToast: ToastHandler
 }) {
   const [health, setHealth] = useState<Health | null>(null)
+  const [downloadSchedule, setDownloadSchedule] = useState<DownloadSchedule | null>(null)
+  const [savingSchedule, setSavingSchedule] = useState(false)
   useEffect(() => {
     api.health().then(setHealth).catch(() => undefined)
+    api.downloadSettings().then(setDownloadSchedule).catch(() => undefined)
   }, [])
+
+  async function saveSchedule(event: FormEvent) {
+    event.preventDefault()
+    if (!downloadSchedule) return
+    setSavingSchedule(true)
+    try {
+      const updated = await api.updateDownloadSettings({
+        enabled: downloadSchedule.enabled,
+        timezone: downloadSchedule.timezone,
+        weekdays: downloadSchedule.weekdays,
+        start_time: downloadSchedule.start_time,
+        end_time: downloadSchedule.end_time,
+      })
+      setDownloadSchedule(updated)
+      onToast('Download window updated.')
+    } catch (reason) {
+      onToast(reason instanceof Error ? reason.message : 'Unable to update download window', 'error')
+    } finally {
+      setSavingSchedule(false)
+    }
+  }
   return (
     <div className="standard-page settings-page">
       <div className="page-heading">
@@ -934,6 +1041,71 @@ function SettingsPage({
             <code>{'RUNTIME_TARGETS_JSON=[...]\nRUNTIME_API_TOKEN=use-a-long-random-secret'}</code>
           </div>
         </section>
+        <section className="settings-section download-window-settings">
+          <div className="settings-section-title">
+            <CalendarClock size={20} />
+            <div>
+              <h2>Download window</h2>
+              <p>Limit Hub transfers to a weekly browser-timezone schedule.</p>
+            </div>
+          </div>
+          {downloadSchedule && (
+            <form onSubmit={saveSchedule}>
+              <label className="safety-toggle">
+                <input
+                  type="checkbox"
+                  checked={downloadSchedule.enabled}
+                  disabled={user.role !== 'admin'}
+                  onChange={(event) => setDownloadSchedule({ ...downloadSchedule, enabled: event.target.checked })}
+                />
+                <span><strong>Enforce download window</strong><small>Active transfers pause at closing and resume at opening.</small></span>
+              </label>
+              <div className="weekday-picker" aria-label="Download weekdays">
+                {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((label, day) => (
+                  <button
+                    type="button"
+                    key={label}
+                    disabled={user.role !== 'admin'}
+                    className={downloadSchedule.weekdays.includes(day) ? 'selected' : ''}
+                    onClick={() => setDownloadSchedule({
+                      ...downloadSchedule,
+                      weekdays: downloadSchedule.weekdays.includes(day)
+                        ? downloadSchedule.weekdays.filter((value) => value !== day)
+                        : [...downloadSchedule.weekdays, day].sort(),
+                    })}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div className="field-pair">
+                <label>Start<input type="time" value={downloadSchedule.start_time} disabled={user.role !== 'admin'} onChange={(event) => setDownloadSchedule({ ...downloadSchedule, start_time: event.target.value })} /></label>
+                <label>End<input type="time" value={downloadSchedule.end_time} disabled={user.role !== 'admin'} onChange={(event) => setDownloadSchedule({ ...downloadSchedule, end_time: event.target.value })} /></label>
+              </div>
+              <label>
+                Timezone
+                <span className="timezone-field">
+                  <input value={downloadSchedule.timezone} readOnly />
+                  {user.role === 'admin' && (
+                    <button type="button" className="secondary-button" onClick={() => setDownloadSchedule({
+                      ...downloadSchedule,
+                      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+                    })}>Use this browser</button>
+                  )}
+                </span>
+              </label>
+              <p className={downloadSchedule.window_open ? 'good-text' : ''}>
+                Window is currently {downloadSchedule.window_open ? 'open' : 'closed'} · overnight ranges are supported.
+              </p>
+              {user.role === 'admin' && (
+                <button className="secondary-button" disabled={savingSchedule}>
+                  {savingSchedule ? <LoaderCircle size={15} className="spin" /> : <CalendarClock size={15} />}
+                  Save download window
+                </button>
+              )}
+            </form>
+          )}
+        </section>
         <AccountAdmin user={user} onToast={onToast} />
       </div>
 
@@ -1003,7 +1175,7 @@ function Application({
   }, [toast])
 
   const activeDownloads = useMemo(
-    () => jobs.filter((job) => ['queued', 'preparing', 'downloading'].includes(job.status)).length,
+    () => jobs.filter((job) => activeDownloadStatuses.includes(job.status)).length,
     [jobs],
   )
 
