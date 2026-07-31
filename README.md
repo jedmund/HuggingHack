@@ -51,7 +51,7 @@
 - Administrator-defined weekly download windows in the browser's IANA timezone
 - Restart recovery: interrupted jobs resume through Hugging Face's local-dir metadata
 - Automatic local-library indexing with model size, file count, config metadata, and unsafe serialization warnings
-- Built-in local accounts with a first-run owner, HTTP-only sessions, and administrator-created member accounts
+- Built-in local accounts or Pocket ID OIDC with per-user provisioning and group-based roles
 - Per-account saved models, private notes, and project or rig collections
 - Private or locally shared user repositories with resumable, chunked model-folder uploads
 - Optional S3-compatible durable storage with a local working cache, remote browsing, restore, and cache eviction
@@ -157,10 +157,10 @@ Switching `DATABASE_URL` does not copy an existing SQLite installation into Post
 
 ## Accounts, saved models, and uploads
 
-Accounts are local to this HuggingHack installation—there is no hosted identity service and
-no account data leaves the server. Each member gets a separate saved-model library, private
-notes, collections, and download history. Members can rotate their own password from
-**Settings**; doing so revokes their other active sessions.
+Local accounts stay inside this HuggingHack installation. Each member gets a separate
+saved-model library, private notes, collections, and download history. Local members can rotate
+their own password from **Settings**; doing so revokes their other active sessions. Pocket ID
+can instead be the only sign-in method, as described below.
 
 Use the heart on a Hub model to save it without downloading. The **Saved** workspace can
 organize those models into multiple collections, such as a project shortlist or a target rig.
@@ -182,9 +182,47 @@ Interrupted uploads keep their progress and resume from the server's confirmed o
 Uploaded repositories are private by default; their owner can share them with every local
 account. Model files stay in the model mount rather than in the metadata database.
 
-To preserve the original trusted-LAN behavior, set `ACCOUNTS_ENABLED=false`. This creates a
-single local compatibility identity and skips sign-in. Do not use that mode on an untrusted
-network.
+To preserve the original trusted-LAN behavior, set `AUTH_MODE=disabled`. This creates a single
+local compatibility identity and skips sign-in. `ACCOUNTS_ENABLED=false` remains supported when
+`AUTH_MODE` is blank. Do not use disabled mode on an untrusted network.
+
+## Use Pocket ID for sign-in
+
+Pocket ID can authenticate every HuggingHack user through one confidential OIDC client. Local
+username/password forms are hidden while OIDC is enabled, and each Pocket ID subject gets its
+own saved models, collections, uploads, and history.
+
+1. In Pocket ID, create an OIDC client for HuggingHack and allow the user groups that should be
+   able to sign in.
+2. Register `https://models.example.com/api/auth/oidc/callback` as the callback URL and
+   `https://models.example.com/` as the logout callback, replacing the hostname with your
+   public HuggingHack URL.
+3. Configure `.env` and restart HuggingHack:
+
+```dotenv
+AUTH_MODE=oidc
+APP_BASE_URL=https://models.example.com
+SECURE_COOKIES=true
+OIDC_ISSUER=https://id.example.com
+OIDC_CLIENT_ID=replace-with-pocket-id-client-id
+OIDC_CLIENT_SECRET=replace-with-pocket-id-client-secret
+OIDC_SCOPES=openid,profile,email,groups
+OIDC_ALLOWED_GROUPS=model-users,model-admins
+OIDC_ADMIN_GROUPS=model-admins
+OIDC_SESSION_TTL_HOURS=12
+```
+
+`OIDC_ALLOWED_GROUPS` is an optional second access check inside HuggingHack; Pocket ID's client
+group restriction should remain the primary gate. `OIDC_ADMIN_GROUPS` maps matching group names
+to the HuggingHack administrator role on every login. With no admin-group mapping, existing
+linked roles are preserved and newly provisioned users are members.
+
+HuggingHack uses Authorization Code flow with a client secret, PKCE S256, nonce validation,
+one-time server-side state, discovery/JWKS signature verification, and exact issuer and audience
+checks. If a Pocket ID preferred username exactly matches an unlinked local username after
+normalization, the identity is linked to that account so its existing data is retained. Later
+users with the same preferred username receive a unique suffix. Signing out revokes the local
+session and continues through Pocket ID's end-session endpoint when advertised.
 
 ## Choose the model folder
 
@@ -439,7 +477,8 @@ Manually copied models are indexed but never modified.
 - HuggingHack downloads files but does not execute repository code, import model modules, or deserialize weights.
 - Model cards are rendered as sanitized Markdown with safe HTML, readable code, tables, lists, and math; embedded scripts, forms, and frames are discarded.
 - Pickle-compatible formats can execute code when loaded by other applications. Prefer SafeTensors or GGUF and only load models from publishers you trust.
-- Passwords are salted and hashed with `scrypt`; sessions use hashed random tokens in HTTP-only, SameSite cookies and state-changing requests require a per-session CSRF token.
+- Local passwords are salted and hashed with `scrypt`; sessions use hashed random tokens in HTTP-only, SameSite cookies and state-changing requests require a per-session CSRF token.
+- OIDC uses authorization-code and PKCE protections, validates signed ID-token claims, stores login state server-side, and never sends the Pocket ID client secret to the browser.
 - Built-in accounts protect application data, but public exposure still requires HTTPS. Put HuggingHack behind a TLS reverse proxy such as Caddy, Traefik, or Nginx Proxy Manager and set `SECURE_COOKIES=true`.
 - Upload paths are confined to repositories owned by the signed-in account. Repository deletion verifies ownership and requires the exact repository name.
 - Runtime dispatch is administrator-only in the UI. Optional bearer access is limited to runtime endpoints; use long random tokens and firewall Ollama and the vLLM agent to trusted LAN clients.
