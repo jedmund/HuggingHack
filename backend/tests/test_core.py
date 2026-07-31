@@ -1,20 +1,27 @@
+import asyncio
+import hashlib
 import json
 import sqlite3
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
+from authlib.jose import JsonWebKey, jwt
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 
-from app.auth import AuthService, verify_password
+from app.auth import AuthService, oidc_username, verify_password
 from app.config import Settings, repository_path, validate_repo_id
 from app.database import Database, _postgres_query
 from app.download_schedule import validate_schedule, window_is_open
 from app.downloads import DownloadManager, resolve_selection
 from app.hub_service import HubService, parse_gguf_range, validate_gguf_filename, weight_groups
 from app.indexer import LocalModelIndexer
+from app.oidc import OIDCService
 from app.runtimes import (
     RuntimeManager,
     ollama_files,
@@ -555,6 +562,201 @@ def test_accounts_disabled_keeps_single_user_compatibility(tmp_path: Path):
     assert session["user"]["role"] == "admin"
     assert "password_hash" not in session["user"]
     assert service.verify_csrf(session, None) is True
+
+
+def test_auth_mode_keeps_legacy_accounts_setting_and_validates_oidc(tmp_path: Path):
+    disabled = Settings(
+        model_storage=(tmp_path / "models").resolve(),
+        data_dir=(tmp_path / "data").resolve(),
+        accounts_enabled=False,
+    )
+    assert disabled.effective_auth_mode == "disabled"
+
+    oidc_settings = Settings(
+        model_storage=(tmp_path / "models").resolve(),
+        data_dir=(tmp_path / "data").resolve(),
+        auth_mode="oidc",
+        app_base_url="https://models.example.com",
+        oidc_issuer="https://id.example.com",
+        oidc_client_id="client-id",
+        oidc_client_secret="client-secret",
+    )
+    oidc_settings.validate_auth()
+    assert oidc_settings.oidc_redirect_uri == (
+        "https://models.example.com/api/auth/oidc/callback"
+    )
+    assert oidc_settings.effective_session_ttl_hours == 12
+
+    with pytest.raises(ValueError, match="requires"):
+        Settings(auth_mode="oidc").validate_auth()
+
+
+def test_oidc_provisioning_links_username_and_maps_groups(tmp_path: Path):
+    settings = Settings(
+        model_storage=(tmp_path / "models").resolve(),
+        data_dir=(tmp_path / "data").resolve(),
+        auth_mode="oidc",
+        oidc_allowed_groups=("model-users", "model-admins"),
+        oidc_admin_groups=("model-admins",),
+    )
+    database = Database(settings.database_path)
+    database.initialize()
+    service = AuthService(settings, database)
+    local = service.create_user("justin", "Local owner", "correct horse battery", "admin")
+
+    linked = service.provision_oidc_user(
+        {
+            "iss": "https://id.example.com",
+            "sub": "pocket-user-1",
+            "preferred_username": "Justin",
+            "name": "Justin from Pocket ID",
+            "email": "justin@example.com",
+            "groups": ["model-users", "model-admins"],
+        }
+    )
+    assert linked["id"] == local["id"]
+    assert linked["display_name"] == "Justin from Pocket ID"
+    assert linked["role"] == "admin"
+
+    distinct = service.provision_oidc_user(
+        {
+            "iss": "https://id.example.com",
+            "sub": "pocket-user-2",
+            "preferred_username": "justin",
+            "groups": ["model-users"],
+        }
+    )
+    assert distinct["id"] != local["id"]
+    assert distinct["username"] == "justin-2"
+    assert distinct["role"] == "member"
+    assert oidc_username({"sub": "abc", "preferred_username": "A User@example"}) == "a-user-example"
+
+    with pytest.raises(PermissionError, match="groups"):
+        service.provision_oidc_user(
+            {
+                "iss": "https://id.example.com",
+                "sub": "blocked-user",
+                "preferred_username": "blocked",
+                "groups": ["unrelated"],
+            }
+        )
+
+
+def test_oidc_login_state_is_single_use(tmp_path: Path):
+    database = Database((tmp_path / "data.sqlite3").resolve())
+    database.initialize()
+    database.create_oidc_login_state(
+        {
+            "state_hash": "state-hash",
+            "nonce": "nonce",
+            "code_verifier": "verifier",
+            "return_to": "/downloads",
+            "created_at": "2026-07-31T12:00:00+00:00",
+            "expires_at": "2026-07-31T12:10:00+00:00",
+        }
+    )
+    assert database.consume_oidc_login_state("state-hash")["nonce"] == "nonce"
+    assert database.consume_oidc_login_state("state-hash") is None
+
+
+def test_oidc_authorization_uses_pkce_and_server_side_state(tmp_path: Path):
+    settings = Settings(
+        model_storage=(tmp_path / "models").resolve(),
+        data_dir=(tmp_path / "data").resolve(),
+        auth_mode="oidc",
+        app_base_url="https://models.example.com",
+        oidc_issuer="https://id.example.com",
+        oidc_client_id="client-id",
+        oidc_client_secret="client-secret",
+    )
+    database = Database(settings.database_path)
+    database.initialize()
+    service = OIDCService(settings, database, AuthService(settings, database))
+
+    async def run_authorization():
+        async def metadata():
+            return {
+                "issuer": settings.oidc_issuer,
+                "authorization_endpoint": "https://id.example.com/authorize",
+                "token_endpoint": "https://id.example.com/token",
+                "jwks_uri": "https://id.example.com/jwks",
+            }
+
+        service.metadata = metadata  # type: ignore[method-assign]
+        url = await service.authorization_url("/downloads")
+        query = parse_qs(urlparse(url).query)
+        assert query["code_challenge_method"] == ["S256"]
+        assert query["nonce"]
+        state_hash = hashlib.sha256(query["state"][0].encode()).hexdigest()
+        record = database.consume_oidc_login_state(state_hash)
+        assert record["return_to"] == "/downloads"
+        assert record["nonce"] == query["nonce"][0]
+        await service.close()
+
+    asyncio.run(run_authorization())
+
+
+def test_oidc_id_token_validation_checks_signature_audience_and_nonce(tmp_path: Path):
+    settings = Settings(
+        model_storage=(tmp_path / "models").resolve(),
+        data_dir=(tmp_path / "data").resolve(),
+        auth_mode="oidc",
+        app_base_url="https://models.example.com",
+        oidc_issuer="https://id.example.com",
+        oidc_client_id="client-id",
+        oidc_client_secret="client-secret",
+    )
+    database = Database(settings.database_path)
+    database.initialize()
+    service = OIDCService(settings, database, AuthService(settings, database))
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    public_pem = private_key.public_key().public_bytes(
+        serialization.Encoding.PEM,
+        serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    private_pem = private_key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    )
+    public_jwk = JsonWebKey.import_key(public_pem).as_dict()
+    public_jwk.update({"kid": "test-key", "use": "sig", "alg": "RS256"})
+    now = datetime.now(timezone.utc)
+    encoded = jwt.encode(
+        {"alg": "RS256", "kid": "test-key"},
+        {
+            "iss": settings.oidc_issuer,
+            "sub": "pocket-user",
+            "aud": settings.oidc_client_id,
+            "exp": int((now + timedelta(minutes=5)).timestamp()),
+            "iat": int(now.timestamp()),
+            "nonce": "expected-nonce",
+        },
+        private_pem,
+    )
+
+    async def run_validation():
+        await service._client.aclose()
+        service._client = httpx.AsyncClient(
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(200, json={"keys": [public_jwk]})
+            )
+        )
+        metadata = {
+            "jwks_uri": "https://id.example.com/jwks",
+            "id_token_signing_alg_values_supported": ["RS256", "none"],
+        }
+        claims = await service._validate_id_token(
+            encoded.decode(), metadata, "expected-nonce", None
+        )
+        assert claims["sub"] == "pocket-user"
+        with pytest.raises(Exception):
+            await service._validate_id_token(
+                encoded.decode(), metadata, "wrong-nonce", None
+            )
+        await service.close()
+
+    asyncio.run(run_validation())
 
 
 def test_database_migrates_existing_download_history(tmp_path: Path):

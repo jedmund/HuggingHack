@@ -7,10 +7,12 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any, Literal
+from urllib.parse import urlencode
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
@@ -21,6 +23,7 @@ from .download_schedule import validate_schedule
 from .downloads import DownloadManager
 from .hub_service import HubService
 from .indexer import LocalModelIndexer
+from .oidc import OIDCService
 from .runtimes import RuntimeManager
 from .storage import create_model_storage
 from .uploads import UploadManager
@@ -32,6 +35,7 @@ indexer = LocalModelIndexer(settings, database)
 model_storage = create_model_storage(settings)
 downloads = DownloadManager(settings, database, hub, indexer, model_storage)
 auth = AuthService(settings, database)
+oidc = OIDCService(settings, database, auth)
 uploads = UploadManager(settings, database, indexer, model_storage)
 runtimes = RuntimeManager(settings, database)
 
@@ -67,6 +71,7 @@ def refresh_model_index() -> dict[str, Any]:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    settings.validate_auth()
     settings.ensure_directories()
     database.initialize()
     database.fail_unfinished_runtime_jobs(utc_iso())
@@ -77,6 +82,7 @@ async def lifespan(_: FastAPI):
     downloads.shutdown()
     runtimes.shutdown()
     hub.close()
+    await oidc.close()
 
 
 app = FastAPI(
@@ -256,7 +262,7 @@ def set_session_cookie(response: Response, raw_token: str) -> None:
     response.set_cookie(
         auth.cookie_name,
         raw_token,
-        max_age=settings.session_ttl_hours * 3600,
+        max_age=settings.effective_session_ttl_hours * 3600,
         httponly=True,
         secure=settings.secure_cookies,
         samesite="lax",
@@ -265,8 +271,12 @@ def set_session_cookie(response: Response, raw_token: str) -> None:
 
 
 def auth_payload(session: dict[str, Any] | None = None) -> dict[str, Any]:
+    mode = settings.effective_auth_mode
     return {
-        "accounts_enabled": settings.accounts_enabled,
+        "accounts_enabled": mode != "disabled",
+        "auth_mode": mode,
+        "oidc_provider_name": settings.oidc_provider_name if mode == "oidc" else None,
+        "oidc_login_url": "/api/auth/oidc/login" if mode == "oidc" else None,
         "setup_required": auth.setup_required(),
         "user": session.get("user") if session else None,
         "csrf_token": session.get("csrf_token") if session else None,
@@ -293,7 +303,8 @@ def health() -> dict:
         "object_storage": object_storage,
         "hf_token_configured": bool(settings.hf_token),
         "hf_endpoint": settings.hf_endpoint,
-        "accounts_enabled": settings.accounts_enabled,
+        "accounts_enabled": settings.effective_auth_mode != "disabled",
+        "auth_mode": settings.effective_auth_mode,
         "upload_chunk_bytes": settings.upload_chunk_mb * 1024**2,
         "max_upload_size_bytes": settings.max_upload_size_gb * 1024**3,
         "runtime_target_count": len(runtimes.targets),
@@ -319,8 +330,8 @@ def auth_status(request: Request) -> dict:
 
 @app.post("/api/auth/setup", status_code=201)
 def setup_account(payload: SetupRequest, response: Response) -> dict:
-    if not settings.accounts_enabled:
-        raise HTTPException(status_code=409, detail="Accounts are disabled.")
+    if settings.effective_auth_mode != "local":
+        raise HTTPException(status_code=409, detail="Local account setup is unavailable.")
     if not auth.setup_required():
         raise HTTPException(status_code=409, detail="The owner account already exists.")
     try:
@@ -334,8 +345,8 @@ def setup_account(payload: SetupRequest, response: Response) -> dict:
 
 @app.post("/api/auth/login")
 def login(payload: CredentialsRequest, request: Request, response: Response) -> dict:
-    if not settings.accounts_enabled:
-        raise HTTPException(status_code=409, detail="Accounts are disabled.")
+    if settings.effective_auth_mode != "local":
+        raise HTTPException(status_code=409, detail="Local sign-in is unavailable.")
     client = request.client.host if request.client else "unknown"
     try:
         user = auth.authenticate(
@@ -351,11 +362,64 @@ def login(payload: CredentialsRequest, request: Request, response: Response) -> 
     return auth_payload({"user": public_user, "csrf_token": csrf_token})
 
 
+@app.get("/api/auth/oidc/login")
+async def oidc_login(return_to: str = Query(default="/", max_length=500)) -> RedirectResponse:
+    if settings.effective_auth_mode != "oidc":
+        raise HTTPException(status_code=404, detail="OIDC sign-in is not configured.")
+    try:
+        location = await oidc.authorization_url(return_to)
+    except Exception as error:
+        raise HTTPException(status_code=502, detail="Unable to contact Pocket ID.") from error
+    return RedirectResponse(location, status_code=302)
+
+
+@app.get("/api/auth/oidc/callback")
+async def oidc_callback(
+    code: str = Query(default="", max_length=4000),
+    state: str = Query(default="", max_length=500),
+    error: str = Query(default="", max_length=200),
+    error_description: str = Query(default="", max_length=500),
+) -> RedirectResponse:
+    if settings.effective_auth_mode != "oidc":
+        raise HTTPException(status_code=404, detail="OIDC sign-in is not configured.")
+    if error:
+        message = error_description or error.replace("_", " ")
+        return RedirectResponse(
+            f"{settings.app_base_url}/?{urlencode({'auth_error': message[:240]})}",
+            status_code=302,
+        )
+    try:
+        user, return_to = await oidc.authenticate_callback(code, state)
+        raw_token, _ = auth.create_session(user["id"])
+    except PermissionError as auth_error:
+        message = str(auth_error)
+        return RedirectResponse(
+            f"{settings.app_base_url}/?{urlencode({'auth_error': message[:240]})}",
+            status_code=302,
+        )
+    except Exception:
+        message = "Pocket ID sign-in could not be completed. Start a new sign-in and try again."
+        return RedirectResponse(
+            f"{settings.app_base_url}/?{urlencode({'auth_error': message[:240]})}",
+            status_code=302,
+        )
+    response = RedirectResponse(
+        f"{settings.app_base_url}{return_to}", status_code=302
+    )
+    set_session_cookie(response, raw_token)
+    return response
+
+
 @app.post("/api/auth/logout")
-def logout(request: Request, response: Response, _: WriteUser) -> dict:
+async def logout(request: Request, response: Response, _: WriteUser) -> dict:
     auth.revoke(request.cookies.get(auth.cookie_name))
     response.delete_cookie(auth.cookie_name, path="/")
-    return {"status": "signed_out"}
+    logout_url = (
+        await oidc.logout_url()
+        if settings.effective_auth_mode == "oidc"
+        else None
+    )
+    return {"status": "signed_out", "logout_url": logout_url}
 
 
 @app.get("/api/users")
@@ -367,6 +431,8 @@ def list_users(user: CurrentUser) -> dict:
 
 @app.post("/api/users", status_code=201)
 def create_user(payload: CreateUserRequest, _: AdminUser) -> dict:
+    if settings.effective_auth_mode != "local":
+        raise HTTPException(status_code=409, detail="Users are provisioned by Pocket ID.")
     try:
         return auth.create_user(
             payload.username, payload.display_name, payload.password, role="member"
@@ -385,10 +451,10 @@ def change_password(
     payload: PasswordChangeRequest, request: Request, user: WriteUser
 ) -> dict:
     raw_token = request.cookies.get(auth.cookie_name)
-    if not raw_token or not settings.accounts_enabled:
+    if not raw_token or settings.effective_auth_mode != "local":
         raise HTTPException(
             status_code=409,
-            detail="Password changes are unavailable when accounts are disabled.",
+            detail="Password changes are only available for local accounts.",
         )
     try:
         auth.change_password(
