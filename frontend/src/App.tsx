@@ -37,6 +37,7 @@ import {
 import { api } from './api'
 import { AccountAdmin, AuthScreen, SavedPage, UploadsPage } from './components/AccountPages'
 import { LocalDrawer, ModelDrawer } from './components/Drawers'
+import { HardwareSection } from './components/HardwareSection'
 import { HubModelRow, LocalModelRow } from './components/RepositoryRows'
 import Shell from './components/Shell'
 import type {
@@ -1108,6 +1109,7 @@ function SettingsPage({
             </form>
           )}
         </section>
+        <HardwareSection onToast={onToast} />
         <AccountAdmin user={user} authStatus={authStatus} onToast={onToast} />
       </div>
 
