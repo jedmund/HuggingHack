@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import os
 import shutil
@@ -15,6 +17,13 @@ from .indexer import UNSAFE_EXTENSIONS
 
 MANIFEST_NAME = ".hugginghack.json"
 PART_SUFFIXES = (".hugginghack-part", ".hugginghack-s3-part")
+
+
+def inject_delete_objects_md5(request: Any, **_: Any) -> None:
+    """Supply the checksum required by strict S3-compatible DeleteObjects APIs."""
+    if request.body and "Content-MD5" not in request.headers:
+        digest = hashlib.md5(request.body).digest()
+        request.headers["Content-MD5"] = base64.b64encode(digest).decode("ascii")
 
 
 def _iso(value: Any) -> str:
@@ -145,6 +154,10 @@ class S3ModelStorage(FilesystemModelStorage):
             if settings.s3_session_token:
                 client_options["aws_session_token"] = settings.s3_session_token
             client = boto3.client(**client_options)
+
+            client.meta.events.register(
+                "request-created.s3.DeleteObjects", inject_delete_objects_md5
+            )
             chunk_bytes = settings.s3_multipart_chunk_mb * 1024**2
             transfer_config = TransferConfig(
                 multipart_threshold=chunk_bytes,

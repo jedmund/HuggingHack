@@ -19,7 +19,7 @@ from app.runtimes import (
     parse_runtime_targets,
     remote_model_path,
 )
-from app.storage import FilesystemModelStorage, S3ModelStorage
+from app.storage import FilesystemModelStorage, S3ModelStorage, inject_delete_objects_md5
 from app.uploads import UploadManager, validate_upload_path
 from app.vllm_agent import AgentSettings, VllmProcessManager
 
@@ -72,6 +72,22 @@ class FakeS3Client:
         if Key not in self.objects:
             raise KeyError(Key)
         return {"Body": BytesIO(self.objects[Key])}
+
+
+def test_delete_objects_md5_is_injected_without_overwriting_existing_header():
+    class Request:
+        body = b"<Delete><Object><Key>model.bin</Key></Object></Delete>"
+
+        def __init__(self):
+            self.headers: dict[str, str] = {}
+
+    request = Request()
+    inject_delete_objects_md5(request)
+    assert request.headers["Content-MD5"] == "eJRthj36oORvbzQhz7emkQ=="
+
+    request.headers["Content-MD5"] = "provided-by-botocore"
+    inject_delete_objects_md5(request)
+    assert request.headers["Content-MD5"] == "provided-by-botocore"
 
 
 def test_repo_id_validation_rejects_path_traversal():
