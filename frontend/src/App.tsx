@@ -42,6 +42,7 @@ import { LocalDrawer, ModelDrawer } from './components/Drawers'
 import { DownloadWindowSettings } from './components/DownloadWindowSettings'
 import { HardwareSection } from './components/HardwareSection'
 import { HubModelRow, LocalModelRow } from './components/RepositoryRows'
+import { SettingsPageHeader } from './components/SettingsPageHeader'
 import Shell from './components/Shell'
 import type {
   AuthStatus,
@@ -931,156 +932,223 @@ const settingsLinks = [
 
 function StorageSettings({ health }: { health: Health | null }) {
   const objectStorageName = health?.object_storage.provider === 'garage' ? 'Garage' : 'S3'
+  const storageDescription = health?.object_storage.enabled
+    ? `${objectStorageName} provides durable storage while /models remains the working cache for inference engines.`
+    : 'Review the local model mount, database, and available capacity for this installation.'
   return (
-    <section className="settings-section">
-      <div className="settings-section-title">
-        <HardDrive size={20} />
-        <div>
-          <h2>{health?.object_storage.enabled ? `${objectStorageName} + local cache` : 'Storage mount'}</h2>
-          <p>
+    <article className="settings-content-page">
+      <SettingsPageHeader
+        eyebrow="System"
+        icon={HardDrive}
+        title="Storage"
+        description={storageDescription}
+      />
+
+      <section className="settings-content-section" aria-labelledby="storage-status-heading">
+        <div className="settings-section-heading">
+          <div>
+            <h2 id="storage-status-heading">Current setup</h2>
+            <p>Live storage and metadata status reported by the server.</p>
+          </div>
+        </div>
+        <dl className="settings-list">
+          <div>
+            <dt>Cache path</dt>
+            <dd><code>{health?.storage.path || '/models'}</code></dd>
+          </div>
+          <div>
+            <dt>Metadata database</dt>
+            <dd>{health?.database_backend === 'postgresql' ? 'PostgreSQL' : 'SQLite'}</dd>
+          </div>
+          {health?.object_storage.enabled && (
+            <>
+              <div>
+                <dt>{objectStorageName} location</dt>
+                <dd>
+                  <code>
+                    s3://{health.object_storage.bucket}/{health.object_storage.prefix || ''}
+                  </code>
+                </dd>
+              </div>
+              <div>
+                <dt>Connection</dt>
+                <dd className={health.object_storage.connected ? 'good-text' : 'danger-text'}>
+                  {health.object_storage.connected ? 'Connected' : health.object_storage.error || 'Unavailable'}
+                </dd>
+              </div>
+            </>
+          )}
+          <div>
+            <dt>Write access</dt>
+            <dd className={health?.storage.writable ? 'good-text' : 'danger-text'}>
+              {health?.storage.writable ? 'Ready' : 'Not writable'}
+            </dd>
+          </div>
+          <div>
+            <dt>Free space</dt>
+            <dd>{health ? formatBytes(health.storage.free_bytes) : 'Reading…'}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section className="settings-content-section" aria-labelledby="storage-config-heading">
+        <div className="settings-section-heading">
+          <div>
+            <h2 id="storage-config-heading">Environment configuration</h2>
+            <p>Storage locations are managed on the server and never edited in the browser.</p>
+          </div>
+        </div>
+        <div className="code-block settings-code-block">
+          <span>.env</span>
+          <code>
             {health?.object_storage.enabled
-              ? `${objectStorageName} is durable storage; /models is the working cache used by inference engines.`
-              : 'The container sees your configured host folder as /models.'}
-          </p>
+              ? health.object_storage.provider === 'garage'
+                ? 'MODEL_STORAGE_BACKEND=s3\nS3_PROVIDER=garage\nS3_BUCKET=my-models\nS3_ENDPOINT_URL=https://s3.example.com'
+                : 'MODEL_STORAGE_BACKEND=s3\nS3_BUCKET=my-models\nS3_PREFIX=models'
+              : 'MODEL_STORAGE_PATH=/volume1/AI/models'}
+          </code>
         </div>
-      </div>
-      <dl className="settings-list">
-        <div>
-          <dt>Cache path</dt>
-          <dd><code>{health?.storage.path || '/models'}</code></dd>
-        </div>
-        <div>
-          <dt>Metadata database</dt>
-          <dd>{health?.database_backend === 'postgresql' ? 'PostgreSQL' : 'SQLite'}</dd>
-        </div>
-        {health?.object_storage.enabled && (
-          <>
-            <div>
-              <dt>{objectStorageName} location</dt>
-              <dd>
-                <code>
-                  s3://{health.object_storage.bucket}/{health.object_storage.prefix || ''}
-                </code>
-              </dd>
-            </div>
-            <div>
-              <dt>Connection</dt>
-              <dd className={health.object_storage.connected ? 'good-text' : 'danger-text'}>
-                {health.object_storage.connected ? 'Connected' : health.object_storage.error || 'Unavailable'}
-              </dd>
-            </div>
-          </>
-        )}
-        <div>
-          <dt>Write access</dt>
-          <dd className={health?.storage.writable ? 'good-text' : 'danger-text'}>
-            {health?.storage.writable ? 'Ready' : 'Not writable'}
-          </dd>
-        </div>
-        <div>
-          <dt>Free space</dt>
-          <dd>{health ? formatBytes(health.storage.free_bytes) : 'Reading…'}</dd>
-        </div>
-      </dl>
-      <div className="code-block">
-        <span>.env</span>
-        <code>
-          {health?.object_storage.enabled
-            ? health.object_storage.provider === 'garage'
-              ? 'MODEL_STORAGE_BACKEND=s3\nS3_PROVIDER=garage\nS3_BUCKET=my-models\nS3_ENDPOINT_URL=https://s3.example.com'
-              : 'MODEL_STORAGE_BACKEND=s3\nS3_BUCKET=my-models\nS3_PREFIX=models'
-            : 'MODEL_STORAGE_PATH=/volume1/AI/models'}
-        </code>
-      </div>
-    </section>
+      </section>
+    </article>
   )
 }
 
 function HuggingFaceSettings({ health }: { health: Health | null }) {
   return (
-    <section className="settings-section">
-      <div className="settings-section-title">
-        <KeyRound size={20} />
-        <div>
-          <h2>Hugging Face access</h2>
-          <p>A read token is only needed for private or gated repositories.</p>
+    <article className="settings-content-page settings-content-page-narrow">
+      <SettingsPageHeader
+        eyebrow="Connections"
+        icon={KeyRound}
+        title="Hugging Face"
+        description="Connect HuggingHack to private or gated repositories with a read-only access token."
+      />
+
+      <section className="settings-content-section" aria-labelledby="hub-status-heading">
+        <div className="settings-section-heading">
+          <div>
+            <h2 id="hub-status-heading">Connection</h2>
+            <p>Public repositories remain available when no token is configured.</p>
+          </div>
         </div>
-      </div>
-      <dl className="settings-list">
-        <div>
-          <dt>Endpoint</dt>
-          <dd><code>{health?.hf_endpoint || 'https://huggingface.co'}</code></dd>
+        <dl className="settings-list">
+          <div>
+            <dt>Endpoint</dt>
+            <dd><code>{health?.hf_endpoint || 'https://huggingface.co'}</code></dd>
+          </div>
+          <div>
+            <dt>Read token</dt>
+            <dd className={health?.hf_token_configured ? 'good-text' : ''}>
+              {health?.hf_token_configured ? 'Configured' : 'Not configured'}
+            </dd>
+          </div>
+        </dl>
+      </section>
+
+      <section className="settings-content-section" aria-labelledby="hub-config-heading">
+        <div className="settings-section-heading">
+          <div>
+            <h2 id="hub-config-heading">Add a token</h2>
+            <p>Set the token in the server environment, then restart HuggingHack.</p>
+          </div>
         </div>
-        <div>
-          <dt>HF token</dt>
-          <dd className={health?.hf_token_configured ? 'good-text' : ''}>
-            {health?.hf_token_configured ? 'Configured' : 'Not configured'}
-          </dd>
+        <div className="code-block settings-code-block">
+          <span>.env</span>
+          <code>HF_TOKEN=hf_your_read_token</code>
         </div>
-      </dl>
-      <div className="code-block">
-        <span>.env</span>
-        <code>HF_TOKEN=hf_your_read_token</code>
-      </div>
-    </section>
+      </section>
+    </article>
   )
 }
 
 function NetworkRuntimeSettings({ health }: { health: Health | null }) {
   return (
-    <section className="settings-section">
-      <div className="settings-section-title">
-        <Server size={20} />
-        <div>
-          <h2>Network runtimes</h2>
-          <p>Configured destinations can receive cached models through the runtime API.</p>
+    <article className="settings-content-page settings-content-page-narrow">
+      <SettingsPageHeader
+        eyebrow="Connections"
+        icon={Server}
+        title="Network runtimes"
+        description="Review remote inference destinations and browser-independent API access."
+      />
+
+      <section className="settings-content-section" aria-labelledby="runtime-status-heading">
+        <div className="settings-section-heading">
+          <div>
+            <h2 id="runtime-status-heading">Runtime access</h2>
+            <p>Configured destinations can receive cached models through the runtime API.</p>
+          </div>
         </div>
-      </div>
-      <dl className="settings-list">
-        <div>
-          <dt>Destinations</dt>
-          <dd>{health?.runtime_target_count ?? 0} configured</dd>
+        <dl className="settings-list">
+          <div>
+            <dt>Destinations</dt>
+            <dd>{health?.runtime_target_count ?? 0} configured</dd>
+          </div>
+          <div>
+            <dt>Automation token</dt>
+            <dd className={health?.runtime_api_token_configured ? 'good-text' : ''}>
+              {health?.runtime_api_token_configured ? 'Configured' : 'Browser session only'}
+            </dd>
+          </div>
+        </dl>
+      </section>
+
+      <section className="settings-content-section" aria-labelledby="runtime-config-heading">
+        <div className="settings-section-heading">
+          <div>
+            <h2 id="runtime-config-heading">Environment configuration</h2>
+            <p>Targets and automation credentials are managed on the server.</p>
+          </div>
         </div>
-        <div>
-          <dt>Automation token</dt>
-          <dd className={health?.runtime_api_token_configured ? 'good-text' : ''}>
-            {health?.runtime_api_token_configured ? 'Configured' : 'Browser session only'}
-          </dd>
+        <div className="code-block settings-code-block">
+          <span>.env</span>
+          <code>{'RUNTIME_TARGETS_JSON=[...]\nRUNTIME_API_TOKEN=use-a-long-random-secret'}</code>
         </div>
-      </dl>
-      <div className="code-block">
-        <span>.env</span>
-        <code>{'RUNTIME_TARGETS_JSON=[...]\nRUNTIME_API_TOKEN=use-a-long-random-secret'}</code>
-      </div>
-    </section>
+      </section>
+    </article>
   )
 }
 
 function SecuritySettings() {
   return (
-    <section className="settings-section security-section">
-      <div className="settings-section-title">
-        <ShieldAlert size={20} />
-        <div>
-          <h2>Local network safety</h2>
-          <p>Downloaded model files are data until another program loads them.</p>
+    <article className="settings-content-page">
+      <SettingsPageHeader
+        eyebrow="Security"
+        icon={ShieldAlert}
+        title="Network safety"
+        description="Understand HuggingHack's security boundary before exposing this installation beyond your local network."
+      />
+
+      <section className="settings-content-section" aria-labelledby="security-guidance-heading">
+        <div className="settings-section-heading">
+          <div>
+            <h2 id="security-guidance-heading">Security guidance</h2>
+            <p>Downloaded model files remain data until another program loads them.</p>
+          </div>
         </div>
-      </div>
-      <div className="security-columns">
-        <div>
-          <strong>HuggingHack never</strong>
-          <p>imports model code, unpickles weights, executes repositories, or sends your NAS files elsewhere.</p>
+        <div className="security-guidance">
+          <div>
+            <span>01</span>
+            <div>
+              <strong>Safe by default</strong>
+              <p>HuggingHack never imports model code, unpickles weights, executes repositories, or sends your NAS files elsewhere.</p>
+            </div>
+          </div>
+          <div>
+            <span>02</span>
+            <div>
+              <strong>Before exposing it publicly</strong>
+              <p>Keep accounts enabled, serve it through an HTTPS reverse proxy, and turn on secure cookies.</p>
+            </div>
+          </div>
+          <div>
+            <span>03</span>
+            <div>
+              <strong>For gated models</strong>
+              <p>Accept the publisher's terms on Hugging Face first, then use a read-only token.</p>
+            </div>
+          </div>
         </div>
-        <div>
-          <strong>Before exposing it publicly</strong>
-          <p>keep accounts enabled, serve it through an HTTPS reverse proxy, and turn on secure cookies.</p>
-        </div>
-        <div>
-          <strong>For gated models</strong>
-          <p>accept the publisher's terms on Hugging Face first, then use a read-only token.</p>
-        </div>
-      </div>
-    </section>
+      </section>
+    </article>
   )
 }
 
@@ -1100,16 +1168,9 @@ function SettingsPage({
 
   return (
     <div className="standard-page settings-page">
-      <div className="page-heading">
-        <div>
-          <span className="eyebrow">Application preferences</span>
-          <h1>Settings</h1>
-          <p>Manage this installation, download behavior, hardware, and account access.</p>
-        </div>
-      </div>
-
       <div className="settings-layout">
         <nav className="settings-subnav" aria-label="Settings">
+          <span className="settings-subnav-heading">Settings</span>
           {settingsLinks.map(({ to, label, icon: Icon }) => (
             <NavLink key={to} to={to}>
               <Icon size={17} aria-hidden="true" />

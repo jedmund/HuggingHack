@@ -20,6 +20,7 @@ import type {
 } from '../types'
 import { formatBytes } from '../utils'
 import { HardwareCatalogPicker } from './HardwareCatalogPicker'
+import { SettingsPageHeader } from './SettingsPageHeader'
 
 type ToastHandler = (message: string, tone?: 'success' | 'error') => void
 
@@ -198,15 +199,14 @@ export function HardwareSection({ onToast }: { onToast: ToastHandler }) {
   }
 
   return (
-    <section className="settings-section hardware-settings">
-      <div className="settings-section-title hardware-section-title">
-        <Cpu size={20} />
-        <div>
-          <h2>My hardware</h2>
-          <p>Add named rigs to check GGUF and MLX weight sets with 20% runtime headroom.</p>
-        </div>
-        {!editing && <button type="button" className="secondary-button compact" onClick={startNew}><Plus size={14} /> Add rig</button>}
-      </div>
+    <article className="settings-content-page settings-content-page-wide hardware-settings">
+      <SettingsPageHeader
+        eyebrow="Personal"
+        icon={Cpu}
+        title="My hardware"
+        description="Describe the machines you run models on to compare GGUF and MLX weights with runtime headroom."
+        action={!editing && <button type="button" className="secondary-button compact" onClick={startNew}><Plus size={14} /> Add rig</button>}
+      />
 
       <div className="hardware-rig-list">
         {rigs.map((rig) => (
@@ -354,6 +354,6 @@ export function HardwareSection({ onToast }: { onToast: ToastHandler }) {
           </div>
         </form>
       )}
-    </section>
+    </article>
   )
 }
