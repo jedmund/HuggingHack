@@ -199,7 +199,7 @@ export function HardwareSection({ onToast }: { onToast: ToastHandler }) {
   }
 
   return (
-    <article className="settings-content-page settings-content-page-wide hardware-settings">
+    <article className="settings-content-page hardware-settings">
       <SettingsPageHeader
         eyebrow="Personal"
         icon={Cpu}
