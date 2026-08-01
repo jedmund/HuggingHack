@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import {
-  Bookmark,
   Box,
   ChevronDown,
   Download,
-  HardDrive,
+  Library,
   LogOut,
   Menu,
   Moon,
@@ -12,8 +11,6 @@ import {
   Server,
   Settings,
   Sun,
-  UploadCloud,
-  UserCircle,
   X,
 } from 'lucide-react'
 import { NavLink, useNavigate } from 'react-router-dom'
@@ -28,9 +25,7 @@ interface ShellProps {
 
 const links = [
   { to: '/models', label: 'Models', icon: Box },
-  { to: '/local', label: 'Local library', icon: HardDrive },
-  { to: '/saved', label: 'Saved', icon: Bookmark },
-  { to: '/uploads', label: 'Uploads', icon: UploadCloud },
+  { to: '/library', label: 'Library', icon: Library },
   { to: '/downloads', label: 'Downloads', icon: Download },
   { to: '/runtimes', label: 'Runtimes', icon: Server, adminOnly: true },
 ]
@@ -46,6 +41,13 @@ export default function Shell({ children, activeDownloads, user, onLogout }: She
   const [theme, setTheme] = useState<'light' | 'dark'>(() =>
     localStorage.getItem('hugginghack-theme') === 'dark' ? 'dark' : 'light',
   )
+  const userInitials = user.display_name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join('')
+    .toUpperCase() || user.username.slice(0, 2).toUpperCase()
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -108,7 +110,7 @@ export default function Shell({ children, activeDownloads, user, onLogout }: She
               ref={searchInput}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search models on the Hub"
+              placeholder="Search models"
               aria-label="Search models on Hugging Face"
             />
             <kbd>/</kbd>
@@ -126,14 +128,6 @@ export default function Shell({ children, activeDownloads, user, onLogout }: She
             ))}
           </nav>
 
-          <button
-            type="button"
-            className="icon-button theme-toggle"
-            onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
-            aria-label={theme === 'light' ? 'Switch to dark theme' : 'Switch to light theme'}
-          >
-            {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
-          </button>
           <div className="account-menu" ref={accountMenu}>
             <button
               ref={accountButton}
@@ -142,18 +136,35 @@ export default function Shell({ children, activeDownloads, user, onLogout }: She
               onClick={() => setAccountOpen((open) => !open)}
               aria-expanded={accountOpen}
               aria-controls="account-dropdown"
+              aria-label={`Open account menu for ${user.display_name}`}
               title={`${user.display_name} · ${user.role}`}
             >
-              <UserCircle size={18} aria-hidden="true" />
-              <span>{user.display_name}</span>
+              <span className="account-avatar" aria-hidden="true">{userInitials}</span>
               <ChevronDown size={15} aria-hidden="true" />
             </button>
             {accountOpen && (
               <div id="account-dropdown" className="account-dropdown">
+                <div className="account-dropdown-identity">
+                  <span className="account-avatar" aria-hidden="true">{userInitials}</span>
+                  <span>
+                    <strong>{user.display_name}</strong>
+                    <small>@{user.username} · {user.role}</small>
+                  </span>
+                </div>
                 <NavLink to="/settings" onClick={() => setAccountOpen(false)}>
                   <Settings size={16} aria-hidden="true" />
                   Settings
                 </NavLink>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTheme(theme === 'light' ? 'dark' : 'light')
+                    setAccountOpen(false)
+                  }}
+                >
+                  {theme === 'light' ? <Moon size={16} aria-hidden="true" /> : <Sun size={16} aria-hidden="true" />}
+                  {theme === 'light' ? 'Dark theme' : 'Light theme'}
+                </button>
                 <button
                   type="button"
                   onClick={() => {
@@ -184,7 +195,7 @@ export default function Shell({ children, activeDownloads, user, onLogout }: She
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search the Hub"
+                placeholder="Search models"
               />
             </form>
             {links.filter((link) => !link.adminOnly || user.role === 'admin').map(({ to, label, icon: Icon }) => (
@@ -200,9 +211,17 @@ export default function Shell({ children, activeDownloads, user, onLogout }: She
               <Settings size={18} />
               Settings
             </NavLink>
+            <div className="mobile-user-summary">
+              <span className="account-avatar" aria-hidden="true">{userInitials}</span>
+              <span><strong>{user.display_name}</strong><small>@{user.username} · {user.role}</small></span>
+            </div>
+            <button type="button" className="mobile-account" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>
+              {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
+              {theme === 'light' ? 'Dark theme' : 'Light theme'}
+            </button>
             <button type="button" className="mobile-account" onClick={onLogout}>
               <LogOut size={18} />
-              Log out {user.display_name}
+              Log out
             </button>
           </div>
         )}
