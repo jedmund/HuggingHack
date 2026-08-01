@@ -37,6 +37,7 @@ import type {
 } from '../types'
 import { formatBytes, relativeTime, taskLabel } from '../utils'
 import { ModelDrawer } from './Drawers'
+import { SettingsPageHeader } from './SettingsPageHeader'
 
 type ToastHandler = (message: string, tone?: 'success' | 'error') => void
 
@@ -706,75 +707,109 @@ export function AccountAdmin({
   }
 
   return (
-    <section className="settings-section account-settings">
-      <div className="settings-section-title">
-        <Users size={20} />
-        <div>
-          <h2>Accounts</h2>
-          <p>
-            Signed in as {user.display_name} ({user.role}).{' '}
-            {authStatus.auth_mode === 'oidc' && `Accounts and roles sync from ${authStatus.oidc_provider_name || 'Pocket ID'}.`}
-            {authStatus.auth_mode === 'disabled' && 'Authentication is disabled for this trusted installation.'}
-          </p>
-        </div>
-      </div>
-      <div className="member-list">
-        {users.map((member) => (
-          <div key={member.id}>
-            <span className="member-avatar">{member.display_name.slice(0, 2).toUpperCase()}</span>
-            <span><strong>{member.display_name}</strong><small>@{member.username}</small></span>
-            <em>{member.role}</em>
+    <article className="settings-content-page account-settings">
+      <SettingsPageHeader
+        eyebrow="Access"
+        icon={Users}
+        title="Accounts"
+        description="Manage your identity, credentials, and the people who can use this HuggingHack installation."
+      />
+
+      <section className="settings-content-section" aria-labelledby="your-account-heading">
+        <div className="settings-section-heading">
+          <div>
+            <h2 id="your-account-heading">Your account</h2>
+            <p>
+              {authStatus.auth_mode === 'oidc' && `Identity and roles sync from ${authStatus.oidc_provider_name || 'Pocket ID'}.`}
+              {authStatus.auth_mode === 'local' && 'Your profile and password are managed by this installation.'}
+              {authStatus.auth_mode === 'disabled' && 'Authentication is disabled for this trusted installation.'}
+            </p>
           </div>
-        ))}
-      </div>
-      {authStatus.auth_mode === 'local' && <form className="password-change-form" onSubmit={changePassword}>
-        <div className="settings-section-title">
-          <LockKeyhole size={17} />
-          <div><h3>Change my password</h3><p>Other signed-in sessions will be revoked.</p></div>
         </div>
-        <input
-          type="password"
-          value={currentPassword}
-          onChange={(event) => setCurrentPassword(event.target.value)}
-          placeholder="Current password"
-          maxLength={256}
-          required
-        />
-        <input
-          type="password"
-          value={newPassword}
-          onChange={(event) => setNewPassword(event.target.value)}
-          placeholder="New password (12+ characters)"
-          minLength={12}
-          maxLength={256}
-          required
-        />
-        <button className="secondary-button" disabled={changingPassword}>
-          {changingPassword ? <LoaderCircle size={15} className="spin" /> : <LockKeyhole size={15} />}
-          Update password
-        </button>
-      </form>}
-      {authStatus.auth_mode === 'oidc' && (
-        <div className="account-managed-note">
-          <ShieldCheck size={17} />
-          <span><strong>Managed by {authStatus.oidc_provider_name || 'Pocket ID'}</strong><small>Sign in there to update your profile. Group changes are applied at the next login.</small></span>
+        <div className="current-account-row">
+          <span className="member-avatar">{user.display_name.slice(0, 2).toUpperCase()}</span>
+          <span><strong>{user.display_name}</strong><small>@{user.username}</small></span>
+          <span className="account-badges">
+            <em>{user.role}</em>
+            <em>{authStatus.auth_mode === 'oidc' ? authStatus.oidc_provider_name || 'OIDC' : authStatus.auth_mode}</em>
+          </span>
         </div>
-      )}
-      {authStatus.auth_mode === 'local' && user.role === 'admin' && (
-        <form className="member-form" onSubmit={createMember}>
-          <div className="settings-section-title">
-            <UserPlus size={17} />
-            <div><h3>Add a member</h3><p>Give them the temporary password securely.</p></div>
+        {authStatus.auth_mode === 'oidc' && (
+          <div className="account-managed-note">
+            <ShieldCheck size={17} />
+            <span><strong>Managed by {authStatus.oidc_provider_name || 'Pocket ID'}</strong><small>Sign in there to update your profile. Group changes are applied at the next login.</small></span>
           </div>
-          <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Display name" maxLength={80} />
-          <input value={username} onChange={(event) => setUsername(event.target.value.toLowerCase())} placeholder="username" maxLength={32} required />
-          <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="12+ character password" minLength={12} maxLength={256} required />
-          <button className="secondary-button" disabled={creating}>
-            {creating ? <LoaderCircle size={15} className="spin" /> : <UserPlus size={15} />}
-            Create member
-          </button>
+        )}
+      </section>
+
+      {authStatus.auth_mode === 'local' && (
+        <form className="settings-content-section password-change-form" onSubmit={changePassword}>
+          <div className="settings-section-heading">
+            <div>
+              <h2>Change password</h2>
+              <p>Updating your password revokes every other active session.</p>
+            </div>
+          </div>
+          <div className="password-change-fields">
+            <input
+              type="password"
+              value={currentPassword}
+              onChange={(event) => setCurrentPassword(event.target.value)}
+              placeholder="Current password"
+              aria-label="Current password"
+              maxLength={256}
+              required
+            />
+            <input
+              type="password"
+              value={newPassword}
+              onChange={(event) => setNewPassword(event.target.value)}
+              placeholder="New password (12+ characters)"
+              aria-label="New password"
+              minLength={12}
+              maxLength={256}
+              required
+            />
+            <button className="secondary-button" disabled={changingPassword}>
+              {changingPassword ? <LoaderCircle size={15} className="spin" /> : <LockKeyhole size={15} />}
+              Update password
+            </button>
+          </div>
         </form>
       )}
-    </section>
+
+      <section className="settings-content-section" aria-labelledby="members-heading">
+        <div className="settings-section-heading">
+          <div>
+            <h2 id="members-heading">Members</h2>
+            <p>{users.length} account{users.length === 1 ? '' : 's'} can access this installation.</p>
+          </div>
+        </div>
+        <div className="member-list">
+          {users.map((member) => (
+            <div key={member.id}>
+              <span className="member-avatar">{member.display_name.slice(0, 2).toUpperCase()}</span>
+              <span><strong>{member.display_name}</strong><small>@{member.username}</small></span>
+              <em>{member.role}</em>
+            </div>
+          ))}
+        </div>
+        {authStatus.auth_mode === 'local' && user.role === 'admin' && (
+          <form className="member-form" onSubmit={createMember}>
+            <div className="settings-subsection-heading">
+              <UserPlus size={17} />
+              <div><h3>Add a member</h3><p>Create their account, then share the temporary password securely.</p></div>
+            </div>
+            <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Display name" aria-label="Display name" maxLength={80} />
+            <input value={username} onChange={(event) => setUsername(event.target.value.toLowerCase())} placeholder="username" aria-label="Username" maxLength={32} required />
+            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="12+ character password" aria-label="Temporary password" minLength={12} maxLength={256} required />
+            <button className="secondary-button" disabled={creating}>
+              {creating ? <LoaderCircle size={15} className="spin" /> : <UserPlus size={15} />}
+              Create member
+            </button>
+          </form>
+        )}
+      </section>
+    </article>
   )
 }

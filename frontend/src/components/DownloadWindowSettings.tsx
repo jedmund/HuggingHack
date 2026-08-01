@@ -15,6 +15,7 @@ import {
   withBrowserTimezoneDefault,
 } from '../downloadSchedule'
 import type { DownloadSchedule, User } from '../types'
+import { SettingsPageHeader } from './SettingsPageHeader'
 
 interface DownloadWindowSettingsProps {
   user: User
@@ -79,23 +80,28 @@ export function DownloadWindowSettings({ user, onToast }: DownloadWindowSettings
   }
 
   return (
-    <section className="settings-section download-window-settings">
-      <div className="settings-section-title download-window-title">
-        <CalendarClock size={20} />
-        <div>
-          <h2>Download window</h2>
-          <p>Choose when Hub transfers are allowed to run.</p>
-        </div>
-        {schedule && (
+    <article className="settings-content-page download-window-settings">
+      <SettingsPageHeader
+        eyebrow="Downloads"
+        icon={CalendarClock}
+        title="Download window"
+        description="Choose when Hub transfers may use bandwidth and automatically pause outside that schedule."
+        action={schedule && (
           <span className={`download-window-status ${schedule.enabled ? open ? 'open' : 'closed' : 'anytime'}`}>
             <span />{schedule.enabled ? open ? 'Open now' : 'Closed now' : 'Any time'}
           </span>
         )}
-      </div>
+      />
 
       {!schedule && <div className="empty-compact">Loading download schedule…</div>}
       {schedule && (
         <form onSubmit={save}>
+          <div className="settings-section-heading download-window-form-heading">
+            <div>
+              <h2>Schedule</h2>
+              <p>{canEdit ? 'Changes apply to all queued and future downloads.' : 'Only administrators can change the shared schedule.'}</p>
+            </div>
+          </div>
           <label className="download-window-enable">
             <input
               type="checkbox"
@@ -217,6 +223,6 @@ export function DownloadWindowSettings({ user, onToast }: DownloadWindowSettings
           )}
         </form>
       )}
-    </section>
+    </article>
   )
 }
