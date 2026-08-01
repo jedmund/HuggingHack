@@ -1017,7 +1017,7 @@ function StorageSettings({ health }: { health: Health | null }) {
 
 function HuggingFaceSettings({ health }: { health: Health | null }) {
   return (
-    <article className="settings-content-page settings-content-page-narrow">
+    <article className="settings-content-page">
       <SettingsPageHeader
         eyebrow="Connections"
         icon={KeyRound}
@@ -1064,7 +1064,7 @@ function HuggingFaceSettings({ health }: { health: Health | null }) {
 
 function NetworkRuntimeSettings({ health }: { health: Health | null }) {
   return (
-    <article className="settings-content-page settings-content-page-narrow">
+    <article className="settings-content-page">
       <SettingsPageHeader
         eyebrow="Connections"
         icon={Server}

@@ -677,9 +677,7 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
 }
 .settings-subnav a.active svg { color: var(--brand-warm); }
 .settings-detail { min-width: 0; }
-.settings-content-page { width: 100%; max-width: 880px; }
-.settings-content-page-narrow { max-width: 760px; }
-.settings-content-page-wide { max-width: none; }
+.settings-content-page { width: 100%; }
 .settings-content-header {
   min-height: 104px; padding: 1px 0 30px; display: grid;
   grid-template-columns: 48px minmax(0, 1fr) auto; align-items: start; gap: 15px;
