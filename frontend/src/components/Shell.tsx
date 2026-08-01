@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'rea
 import {
   Bookmark,
   Box,
+  ChevronDown,
   Download,
   HardDrive,
   LogOut,
@@ -37,8 +38,11 @@ const links = [
 export default function Shell({ children, activeDownloads, user, onLogout }: ShellProps) {
   const navigate = useNavigate()
   const searchInput = useRef<HTMLInputElement>(null)
+  const accountMenu = useRef<HTMLDivElement>(null)
+  const accountButton = useRef<HTMLButtonElement>(null)
   const [query, setQuery] = useState('')
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [accountOpen, setAccountOpen] = useState(false)
   const [theme, setTheme] = useState<'light' | 'dark'>(() =>
     localStorage.getItem('hugginghack-theme') === 'dark' ? 'dark' : 'light',
   )
@@ -60,6 +64,27 @@ export default function Shell({ children, activeDownloads, user, onLogout }: She
     window.addEventListener('keydown', focusSearch)
     return () => window.removeEventListener('keydown', focusSearch)
   }, [])
+
+  useEffect(() => {
+    if (!accountOpen) return
+
+    function closeAccountMenu(event: MouseEvent) {
+      if (!accountMenu.current?.contains(event.target as Node)) setAccountOpen(false)
+    }
+
+    function closeAccountMenuWithKeyboard(event: KeyboardEvent) {
+      if (event.key !== 'Escape') return
+      setAccountOpen(false)
+      accountButton.current?.focus()
+    }
+
+    document.addEventListener('mousedown', closeAccountMenu)
+    document.addEventListener('keydown', closeAccountMenuWithKeyboard)
+    return () => {
+      document.removeEventListener('mousedown', closeAccountMenu)
+      document.removeEventListener('keydown', closeAccountMenuWithKeyboard)
+    }
+  }, [accountOpen])
 
   function search(event: FormEvent) {
     event.preventDefault()
@@ -99,10 +124,6 @@ export default function Shell({ children, activeDownloads, user, onLogout }: She
                 )}
               </NavLink>
             ))}
-            <NavLink to="/settings" aria-label="Settings">
-              <Settings size={17} aria-hidden="true" />
-              <span className="desktop-hidden-label">Settings</span>
-            </NavLink>
           </nav>
 
           <button
@@ -113,12 +134,38 @@ export default function Shell({ children, activeDownloads, user, onLogout }: She
           >
             {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
           </button>
-          <div className="account-chip" title={`${user.display_name} · ${user.role}`}>
-            <UserCircle size={18} />
-            <span>{user.display_name}</span>
-            <button type="button" onClick={onLogout} aria-label="Sign out" title="Sign out">
-              <LogOut size={15} />
+          <div className="account-menu" ref={accountMenu}>
+            <button
+              ref={accountButton}
+              type="button"
+              className="account-chip"
+              onClick={() => setAccountOpen((open) => !open)}
+              aria-expanded={accountOpen}
+              aria-controls="account-dropdown"
+              title={`${user.display_name} · ${user.role}`}
+            >
+              <UserCircle size={18} aria-hidden="true" />
+              <span>{user.display_name}</span>
+              <ChevronDown size={15} aria-hidden="true" />
             </button>
+            {accountOpen && (
+              <div id="account-dropdown" className="account-dropdown">
+                <NavLink to="/settings" onClick={() => setAccountOpen(false)}>
+                  <Settings size={16} aria-hidden="true" />
+                  Settings
+                </NavLink>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAccountOpen(false)
+                    onLogout()
+                  }}
+                >
+                  <LogOut size={16} aria-hidden="true" />
+                  Log out
+                </button>
+              </div>
+            )}
           </div>
           <button
             type="button"
@@ -155,7 +202,7 @@ export default function Shell({ children, activeDownloads, user, onLogout }: She
             </NavLink>
             <button type="button" className="mobile-account" onClick={onLogout}>
               <LogOut size={18} />
-              Sign out {user.display_name}
+              Log out {user.display_name}
             </button>
           </div>
         )}

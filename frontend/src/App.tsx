@@ -9,6 +9,7 @@ import {
   CircleX,
   Clock3,
   Cloud,
+  Cpu,
   Download,
   Filter,
   HardDrive,
@@ -24,11 +25,13 @@ import {
   ShieldAlert,
   SlidersHorizontal,
   Trash2,
+  Users,
   Wifi,
 } from 'lucide-react'
 import {
   HashRouter,
   Navigate,
+  NavLink,
   Route,
   Routes,
   useSearchParams,
@@ -916,6 +919,171 @@ function RuntimesPage() {
   )
 }
 
+const settingsLinks = [
+  { to: '/settings/storage', label: 'Storage', icon: HardDrive },
+  { to: '/settings/hugging-face', label: 'Hugging Face', icon: KeyRound },
+  { to: '/settings/runtimes', label: 'Network runtimes', icon: Server },
+  { to: '/settings/download-window', label: 'Download window', icon: Clock3 },
+  { to: '/settings/hardware', label: 'My hardware', icon: Cpu },
+  { to: '/settings/accounts', label: 'Accounts', icon: Users },
+  { to: '/settings/security', label: 'Network safety', icon: ShieldAlert },
+]
+
+function StorageSettings({ health }: { health: Health | null }) {
+  const objectStorageName = health?.object_storage.provider === 'garage' ? 'Garage' : 'S3'
+  return (
+    <section className="settings-section">
+      <div className="settings-section-title">
+        <HardDrive size={20} />
+        <div>
+          <h2>{health?.object_storage.enabled ? `${objectStorageName} + local cache` : 'Storage mount'}</h2>
+          <p>
+            {health?.object_storage.enabled
+              ? `${objectStorageName} is durable storage; /models is the working cache used by inference engines.`
+              : 'The container sees your configured host folder as /models.'}
+          </p>
+        </div>
+      </div>
+      <dl className="settings-list">
+        <div>
+          <dt>Cache path</dt>
+          <dd><code>{health?.storage.path || '/models'}</code></dd>
+        </div>
+        <div>
+          <dt>Metadata database</dt>
+          <dd>{health?.database_backend === 'postgresql' ? 'PostgreSQL' : 'SQLite'}</dd>
+        </div>
+        {health?.object_storage.enabled && (
+          <>
+            <div>
+              <dt>{objectStorageName} location</dt>
+              <dd>
+                <code>
+                  s3://{health.object_storage.bucket}/{health.object_storage.prefix || ''}
+                </code>
+              </dd>
+            </div>
+            <div>
+              <dt>Connection</dt>
+              <dd className={health.object_storage.connected ? 'good-text' : 'danger-text'}>
+                {health.object_storage.connected ? 'Connected' : health.object_storage.error || 'Unavailable'}
+              </dd>
+            </div>
+          </>
+        )}
+        <div>
+          <dt>Write access</dt>
+          <dd className={health?.storage.writable ? 'good-text' : 'danger-text'}>
+            {health?.storage.writable ? 'Ready' : 'Not writable'}
+          </dd>
+        </div>
+        <div>
+          <dt>Free space</dt>
+          <dd>{health ? formatBytes(health.storage.free_bytes) : 'Reading…'}</dd>
+        </div>
+      </dl>
+      <div className="code-block">
+        <span>.env</span>
+        <code>
+          {health?.object_storage.enabled
+            ? health.object_storage.provider === 'garage'
+              ? 'MODEL_STORAGE_BACKEND=s3\nS3_PROVIDER=garage\nS3_BUCKET=my-models\nS3_ENDPOINT_URL=https://s3.example.com'
+              : 'MODEL_STORAGE_BACKEND=s3\nS3_BUCKET=my-models\nS3_PREFIX=models'
+            : 'MODEL_STORAGE_PATH=/volume1/AI/models'}
+        </code>
+      </div>
+    </section>
+  )
+}
+
+function HuggingFaceSettings({ health }: { health: Health | null }) {
+  return (
+    <section className="settings-section">
+      <div className="settings-section-title">
+        <KeyRound size={20} />
+        <div>
+          <h2>Hugging Face access</h2>
+          <p>A read token is only needed for private or gated repositories.</p>
+        </div>
+      </div>
+      <dl className="settings-list">
+        <div>
+          <dt>Endpoint</dt>
+          <dd><code>{health?.hf_endpoint || 'https://huggingface.co'}</code></dd>
+        </div>
+        <div>
+          <dt>HF token</dt>
+          <dd className={health?.hf_token_configured ? 'good-text' : ''}>
+            {health?.hf_token_configured ? 'Configured' : 'Not configured'}
+          </dd>
+        </div>
+      </dl>
+      <div className="code-block">
+        <span>.env</span>
+        <code>HF_TOKEN=hf_your_read_token</code>
+      </div>
+    </section>
+  )
+}
+
+function NetworkRuntimeSettings({ health }: { health: Health | null }) {
+  return (
+    <section className="settings-section">
+      <div className="settings-section-title">
+        <Server size={20} />
+        <div>
+          <h2>Network runtimes</h2>
+          <p>Configured destinations can receive cached models through the runtime API.</p>
+        </div>
+      </div>
+      <dl className="settings-list">
+        <div>
+          <dt>Destinations</dt>
+          <dd>{health?.runtime_target_count ?? 0} configured</dd>
+        </div>
+        <div>
+          <dt>Automation token</dt>
+          <dd className={health?.runtime_api_token_configured ? 'good-text' : ''}>
+            {health?.runtime_api_token_configured ? 'Configured' : 'Browser session only'}
+          </dd>
+        </div>
+      </dl>
+      <div className="code-block">
+        <span>.env</span>
+        <code>{'RUNTIME_TARGETS_JSON=[...]\nRUNTIME_API_TOKEN=use-a-long-random-secret'}</code>
+      </div>
+    </section>
+  )
+}
+
+function SecuritySettings() {
+  return (
+    <section className="settings-section security-section">
+      <div className="settings-section-title">
+        <ShieldAlert size={20} />
+        <div>
+          <h2>Local network safety</h2>
+          <p>Downloaded model files are data until another program loads them.</p>
+        </div>
+      </div>
+      <div className="security-columns">
+        <div>
+          <strong>HuggingHack never</strong>
+          <p>imports model code, unpickles weights, executes repositories, or sends your NAS files elsewhere.</p>
+        </div>
+        <div>
+          <strong>Before exposing it publicly</strong>
+          <p>keep accounts enabled, serve it through an HTTPS reverse proxy, and turn on secure cookies.</p>
+        </div>
+        <div>
+          <strong>For gated models</strong>
+          <p>accept the publisher's terms on Hugging Face first, then use a read-only token.</p>
+        </div>
+      </div>
+    </section>
+  )
+}
+
 function SettingsPage({
   user,
   authStatus,
@@ -929,160 +1097,43 @@ function SettingsPage({
   useEffect(() => {
     api.health().then(setHealth).catch(() => undefined)
   }, [])
-  const objectStorageName = health?.object_storage.provider === 'garage' ? 'Garage' : 'S3'
+
   return (
     <div className="standard-page settings-page">
       <div className="page-heading">
         <div>
-          <span className="eyebrow">Runtime configuration</span>
+          <span className="eyebrow">Application preferences</span>
           <h1>Settings</h1>
-          <p>HuggingHack is configured with environment variables so credentials never enter the browser.</p>
+          <p>Manage this installation, download behavior, hardware, and account access.</p>
         </div>
       </div>
 
-      <div className="settings-grid">
-        <section className="settings-section">
-          <div className="settings-section-title">
-            <Server size={20} />
-            <div>
-              <h2>{health?.object_storage.enabled ? `${objectStorageName} + local cache` : 'Storage mount'}</h2>
-              <p>
-                {health?.object_storage.enabled
-                  ? `${objectStorageName} is durable storage; /models is the working cache used by inference engines.`
-                  : 'The container sees your configured host folder as /models.'}
-              </p>
-            </div>
-          </div>
-          <dl className="settings-list">
-            <div>
-              <dt>Cache path</dt>
-              <dd><code>{health?.storage.path || '/models'}</code></dd>
-            </div>
-            <div>
-              <dt>Metadata database</dt>
-              <dd>{health?.database_backend === 'postgresql' ? 'PostgreSQL' : 'SQLite'}</dd>
-            </div>
-            {health?.object_storage.enabled && (
-              <>
-                <div>
-                  <dt>{objectStorageName} location</dt>
-                  <dd>
-                    <code>
-                      s3://{health.object_storage.bucket}/{health.object_storage.prefix || ''}
-                    </code>
-                  </dd>
-                </div>
-                <div>
-                  <dt>Connection</dt>
-                  <dd className={health.object_storage.connected ? 'good-text' : 'danger-text'}>
-                    {health.object_storage.connected ? 'Connected' : health.object_storage.error || 'Unavailable'}
-                  </dd>
-                </div>
-              </>
-            )}
-            <div>
-              <dt>Write access</dt>
-              <dd className={health?.storage.writable ? 'good-text' : 'danger-text'}>
-                {health?.storage.writable ? 'Ready' : 'Not writable'}
-              </dd>
-            </div>
-            <div>
-              <dt>Free space</dt>
-              <dd>{health ? formatBytes(health.storage.free_bytes) : 'Reading…'}</dd>
-            </div>
-          </dl>
-          <div className="code-block">
-            <span>.env</span>
-            <code>
-              {health?.object_storage.enabled
-                ? health.object_storage.provider === 'garage'
-                  ? 'MODEL_STORAGE_BACKEND=s3\nS3_PROVIDER=garage\nS3_BUCKET=my-models\nS3_ENDPOINT_URL=https://s3.example.com'
-                  : 'MODEL_STORAGE_BACKEND=s3\nS3_BUCKET=my-models\nS3_PREFIX=models'
-                : 'MODEL_STORAGE_PATH=/volume1/AI/models'}
-            </code>
-          </div>
-        </section>
+      <div className="settings-layout">
+        <nav className="settings-subnav" aria-label="Settings">
+          {settingsLinks.map(({ to, label, icon: Icon }) => (
+            <NavLink key={to} to={to}>
+              <Icon size={17} aria-hidden="true" />
+              <span>{label}</span>
+            </NavLink>
+          ))}
+        </nav>
 
-        <section className="settings-section">
-          <div className="settings-section-title">
-            <KeyRound size={20} />
-            <div>
-              <h2>Hugging Face access</h2>
-              <p>A read token is only needed for private or gated repositories.</p>
-            </div>
-          </div>
-          <dl className="settings-list">
-            <div>
-              <dt>Endpoint</dt>
-              <dd><code>{health?.hf_endpoint || 'https://huggingface.co'}</code></dd>
-            </div>
-            <div>
-              <dt>HF token</dt>
-              <dd className={health?.hf_token_configured ? 'good-text' : ''}>
-                {health?.hf_token_configured ? 'Configured' : 'Not configured'}
-              </dd>
-            </div>
-          </dl>
-          <div className="code-block">
-            <span>.env</span>
-            <code>HF_TOKEN=hf_your_read_token</code>
-          </div>
-        </section>
-        <section className="settings-section">
-          <div className="settings-section-title">
-            <Server size={20} />
-            <div>
-              <h2>Network runtimes</h2>
-              <p>Configured destinations can receive cached models through the runtime API.</p>
-            </div>
-          </div>
-          <dl className="settings-list">
-            <div>
-              <dt>Destinations</dt>
-              <dd>{health?.runtime_target_count ?? 0} configured</dd>
-            </div>
-            <div>
-              <dt>Automation token</dt>
-              <dd className={health?.runtime_api_token_configured ? 'good-text' : ''}>
-                {health?.runtime_api_token_configured ? 'Configured' : 'Browser session only'}
-              </dd>
-            </div>
-          </dl>
-          <div className="code-block">
-            <span>.env</span>
-            <code>{'RUNTIME_TARGETS_JSON=[...]\nRUNTIME_API_TOKEN=use-a-long-random-secret'}</code>
-          </div>
-        </section>
-        <DownloadWindowSettings user={user} onToast={onToast} />
-        <HardwareSection onToast={onToast} />
-        <AccountAdmin user={user} authStatus={authStatus} onToast={onToast} />
+        <div className="settings-detail">
+          <Routes>
+            <Route index element={<Navigate to="storage" replace />} />
+            <Route path="storage" element={<StorageSettings health={health} />} />
+            <Route path="hugging-face" element={<HuggingFaceSettings health={health} />} />
+            <Route path="runtimes" element={<NetworkRuntimeSettings health={health} />} />
+            <Route path="download-window" element={<DownloadWindowSettings user={user} onToast={onToast} />} />
+            <Route path="hardware" element={<HardwareSection onToast={onToast} />} />
+            <Route path="accounts" element={<AccountAdmin user={user} authStatus={authStatus} onToast={onToast} />} />
+            <Route path="security" element={<SecuritySettings />} />
+            <Route path="*" element={<Navigate to="storage" replace />} />
+          </Routes>
+        </div>
       </div>
 
-      <section className="settings-section security-section">
-        <div className="settings-section-title">
-          <ShieldAlert size={20} />
-          <div>
-            <h2>Local network safety</h2>
-            <p>Downloaded model files are data until another program loads them.</p>
-          </div>
-        </div>
-        <div className="security-columns">
-          <div>
-            <strong>HuggingHack never</strong>
-            <p>imports model code, unpickles weights, executes repositories, or sends your NAS files elsewhere.</p>
-          </div>
-          <div>
-            <strong>Before exposing it publicly</strong>
-            <p>keep accounts enabled, serve it through an HTTPS reverse proxy, and turn on secure cookies.</p>
-          </div>
-          <div>
-            <strong>For gated models</strong>
-            <p>accept the publisher's terms on Hugging Face first, then use a read-only token.</p>
-          </div>
-        </div>
-      </section>
-
-      <div className="runtime-line">
+      <div className="runtime-line settings-runtime-line">
         <Wifi size={15} />
         HuggingHack {health?.version || '1.0.0'} · unofficial, local-first, and not affiliated with Hugging Face
       </div>
@@ -1169,7 +1220,7 @@ function Application({
               : <Navigate to="/local" replace />
           }
         />
-        <Route path="/settings" element={<SettingsPage user={user} authStatus={authStatus} onToast={showToast} />} />
+        <Route path="/settings/*" element={<SettingsPage user={user} authStatus={authStatus} onToast={showToast} />} />
         <Route path="*" element={<Navigate to="/models" replace />} />
       </Routes>
       {toast && (
