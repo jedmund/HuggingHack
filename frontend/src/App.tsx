@@ -3,6 +3,7 @@ import {
   AlertCircle,
   ArrowDownToLine,
   Ban,
+  Bookmark,
   Box,
   Check,
   ChevronDown,
@@ -25,6 +26,7 @@ import {
   ShieldAlert,
   SlidersHorizontal,
   Trash2,
+  UploadCloud,
   Users,
   Wifi,
 } from 'lucide-react'
@@ -1202,6 +1204,40 @@ function SettingsPage({
   )
 }
 
+const libraryLinks = [
+  { to: '/library/local', label: 'Local models', icon: HardDrive },
+  { to: '/library/saved', label: 'Saved', icon: Bookmark },
+  { to: '/library/uploads', label: 'Uploads', icon: UploadCloud },
+]
+
+function LibraryPage({
+  user,
+  onToast,
+}: {
+  user: User
+  onToast: ToastHandler
+}) {
+  return (
+    <div className="library-section">
+      <nav className="library-subnav" aria-label="Library">
+        {libraryLinks.map(({ to, label, icon: Icon }) => (
+          <NavLink key={to} to={to}>
+            <Icon size={16} aria-hidden="true" />
+            {label}
+          </NavLink>
+        ))}
+      </nav>
+      <Routes>
+        <Route index element={<Navigate to="local" replace />} />
+        <Route path="local" element={<LocalPage onToast={onToast} user={user} />} />
+        <Route path="saved" element={<SavedPage onToast={onToast} />} />
+        <Route path="uploads" element={<UploadsPage user={user} onToast={onToast} />} />
+        <Route path="*" element={<Navigate to="local" replace />} />
+      </Routes>
+    </div>
+  )
+}
+
 function Application({
   authStatus,
   onAuthChange,
@@ -1260,9 +1296,10 @@ function Application({
           path="/models"
           element={<ModelsPage onToast={showToast} refreshDownloads={refreshDownloads} />}
         />
-        <Route path="/local" element={<LocalPage onToast={showToast} user={user} />} />
-        <Route path="/saved" element={<SavedPage onToast={showToast} />} />
-        <Route path="/uploads" element={<UploadsPage user={user} onToast={showToast} />} />
+        <Route path="/library/*" element={<LibraryPage user={user} onToast={showToast} />} />
+        <Route path="/local" element={<Navigate to="/library/local" replace />} />
+        <Route path="/saved" element={<Navigate to="/library/saved" replace />} />
+        <Route path="/uploads" element={<Navigate to="/library/uploads" replace />} />
         <Route
           path="/downloads"
           element={
@@ -1278,7 +1315,7 @@ function Application({
           element={
             user.role === 'admin'
               ? <RuntimesPage />
-              : <Navigate to="/local" replace />
+              : <Navigate to="/library/local" replace />
           }
         />
         <Route path="/settings/*" element={<SettingsPage user={user} authStatus={authStatus} onToast={showToast} />} />
